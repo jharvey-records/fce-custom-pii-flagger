@@ -209,6 +209,7 @@ def build_complete_query(config: Dict[str, Any], field: str = "document_text", f
 def load_checksum_algorithm(algorithm_name: str) -> str:
     """
     Load checksum algorithm from painless file.
+    Trims test lines marked by specific comments to preserve core algorithm logic.
     
     Args:
         algorithm_name: Name of the checksum algorithm
@@ -225,12 +226,63 @@ def load_checksum_algorithm(algorithm_name: str) -> str:
         with open(script_path, 'r') as f:
             script_content = f.read()
         
+        # Trim test lines based on comment markers
+        script_content = trim_test_lines(script_content)
+        
         # Remove line breaks and extra whitespace, replace with single spaces
         script_content = re.sub(r'\s+', ' ', script_content.strip())
         
         return script_content
     except Exception as e:
         raise Exception(f"Error loading checksum algorithm '{algorithm_name}': {e}")
+
+def trim_test_lines(script_content: str) -> str:
+    """
+    Trim test lines from painless script content based on comment markers.
+    
+    Removes:
+    - Everything from start up to and including "// Anything on this line or above will be removed"
+    - Everything from "// Return statement goes here..." to the end
+    
+    Args:
+        script_content: Raw script content from file
+    
+    Returns:
+        Trimmed script content with only core algorithm logic
+    """
+    lines = script_content.split('\n')
+    
+    # Find the start marker (remove everything up to and including this line)
+    start_marker = "// Anything on this line or above will be removed"
+    start_index = None
+    for i, line in enumerate(lines):
+        if start_marker in line:
+            start_index = i + 1  # Start after this line
+            break
+    
+    # Find the end marker (remove everything from this line onwards)
+    end_marker = "// Return statement goes here so you can validate if passChecksum is working in your lab"
+    end_index = None
+    for i, line in enumerate(lines):
+        if end_marker in line:
+            end_index = i  # End before this line
+            break
+    
+    # Extract the core algorithm logic
+    if start_index is not None and end_index is not None:
+        # Both markers found - extract content between them
+        core_lines = lines[start_index:end_index]
+    elif start_index is not None:
+        # Only start marker found - extract everything after it
+        core_lines = lines[start_index:]
+    elif end_index is not None:
+        # Only end marker found - extract everything before it
+        core_lines = lines[:end_index]
+    else:
+        # No markers found - return original content (no test lines)
+        core_lines = lines
+    
+    return '\n'.join(core_lines)
 
 def build_checksum_regex(pattern_chunks: List[str], context_words: List[str]) -> str:
     """

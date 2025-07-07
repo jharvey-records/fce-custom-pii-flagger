@@ -1,3 +1,7 @@
+// Set passChecksum and cleanMatch to whatever you want below for testing in your painless lab
+boolean passChecksum = false;
+String cleanMatch = "1234567";
+// Anything on this line or above will be removed
 if (cleanMatch.length() == 9) {
     int[] weights = new int[] {
         1, 4, 3, 7, 5, 8, 6, 9, 10
@@ -11,4 +15,5 @@ if (cleanMatch.length() == 9) {
         passChecksum = true;
     }
 }
-
+// Return statement goes here so you can validate if passChecksum is working in your lab -  this line and anything below it will be removed
+return passChecksum

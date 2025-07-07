@@ -182,10 +182,19 @@ Custom checksum algorithms can be added by creating `.painless` files in the `ch
 You can test custom algorithms in a painless lab by making the first two lines:
 
 ```
-passChecksum = false
-cleanMatch = 1234567 
+// Set passChecksum and cleanMatch to whatever you want below for testing in your painless lab
+boolean passChecksum = false;
+String cleanMatch = "1234567";
+// Anything on this line or above will be removed
 ```
 
-Then implementing logic to make "passChecksum = true" if the check passes.
+Paste your checksum algorithm underneath that. If cleanMatch passes then the value of passChecksum should be updated to "true".
 
-Make sure to remove the first two lines before creating the .painless script! Otherwise the values will be hard coded.
+Make the final few lines:
+
+```
+// Return statement goes here so you can validate if passChecksum is working in your lab -  this line and anything below it will be removed
+return passChecksum
+```
+
+passChecksum will return true or false depending on the value you set in cleanMatch.
