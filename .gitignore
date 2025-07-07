@@ -3,6 +3,7 @@ CLAUDE.md
 claude_requirements/
 revert_index.sh
 sync-to-github.sh
+.git-credentials
 
 # Python
 __pycache__/
@@ -36,4 +37,3 @@ wheels/
 # OS
 .DS_Store
 Thumbs.db
-.git-credentials
