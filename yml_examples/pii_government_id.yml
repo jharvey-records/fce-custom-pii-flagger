@@ -1,0 +1,12 @@
+fieldName: HasGovernmentID
+patternRegex:
+  - "[A-Z]{2,4}"
+  - "[0-9]{6,12}"
+contextWords:
+  - "government id"
+  - "government identification"
+  - "identity card"
+  - "id card"
+  - "national id"
+  - "citizen id"
+  - "registration number"

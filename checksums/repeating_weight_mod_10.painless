@@ -1,0 +1,16 @@
+if (cleanMatch.length() == 10) {
+    int[] weights = new int[] {
+        1, 3, 7, 9, 1, 3, 7, 9
+    };
+    int sum = 0;
+    for (int i = 0; i < 8; i++) {
+        sum += weights[i] * Character.getNumericValue(cleanMatch.charAt(i));
+    }
+    
+    int checkDigit = Character.getNumericValue(cleanMatch.charAt(9));
+    int calculatedCheckDigit = sum % 10;
+    
+    if (checkDigit == calculatedCheckDigit) {
+        passChecksum = true;
+    }
+}

@@ -1,0 +1,12 @@
+fieldName: HasStudentID
+patternRegex:
+  - "[A-Z]{2,4}"
+  - "[0-9]{4}"
+  - "[0-9]{7}"
+contextWords:
+  - "student id"
+  - "student number"
+  - "student identification"
+  - "enrollment number"
+  - university
+  - college

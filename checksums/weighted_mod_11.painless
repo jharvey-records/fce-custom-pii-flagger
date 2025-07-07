@@ -1,0 +1,14 @@
+if (cleanMatch.length() == 9) {
+    int[] weights = new int[] {
+        1, 4, 3, 7, 5, 8, 6, 9, 10
+    };
+    int sum = 0;
+    for (int i = 0; i < 9; i++) {
+        sum += weights[i] * Character.getNumericValue(cleanMatch.charAt(i));
+    }
+    
+    if (sum % 11 == 0) {
+        passChecksum = true;
+    }
+}
+

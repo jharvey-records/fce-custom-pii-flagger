@@ -1,0 +1,9 @@
+fieldName: HasPassport
+patternRegex:
+  - "[A-Z]{1}"
+  - "[0-9]{7}"
+contextWords:
+  - passport
+  - "passport number"
+  - "travel document"
+  - "document number"

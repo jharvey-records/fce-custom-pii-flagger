@@ -1,0 +1,12 @@
+fieldName: HasWorkEmail
+patternRegex:
+  - "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+contextWords:
+  - "work email"
+  - "business email"
+  - "corporate email"
+  - "company email"
+  - "office email"
+  - "professional email"
+  - employer
+  - workplace
