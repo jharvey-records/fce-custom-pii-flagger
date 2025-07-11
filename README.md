@@ -6,13 +6,28 @@ These custom flags will appear in RecordPoint metadata under the "Details" tab i
 
 ## Installation
 
-Install python
+### Python Dependencies
+
+Install Python and required packages:
 
 ```bash
 pip install pyyaml requests
 ```
 
+### System Dependencies
+
+For the shell scripts, ensure you have:
+
+- **curl** - For API calls to FCE
+- **jq** - For JSON parsing (install with `sudo apt-get install jq` on Ubuntu/Debian)
+
+### FCE Configuration
+
+For checksum validation to work, you'll need to configure Elasticsearch. See the [Checksum Validation](#checksum-validation) section below for details.
+
 ## Usage
+
+### Basic PII Detection
 
 Basic usage is as follows:
 
@@ -21,6 +36,47 @@ python pii_detector.py [options] <index_name> <config.yml>
 ```
 
 Where config.yml is a yaml file that defines the flag name, regular expression, and context words to search for.
+
+### Bulk Processing
+
+For processing multiple YAML files against a single index:
+
+```bash
+./bulk_custom_pii.sh <index_name> <yaml_directory>
+```
+
+This script will automatically process all `.yml` files in the specified directory.
+
+### Continuous Crawl Integration
+
+For automated continuous crawl with PII detection:
+
+```bash
+./continuous_crawl_pii.sh [--test|--no-submit] <index_prefix> <yaml_directory>
+```
+
+Options:
+- `--test`: Test mode - creates index, runs PII detection, then cleans up
+- `--no-submit`: Skip submission but keep the index for review
+
+This script will:
+1. Configure FCE for document cracking only
+2. Prune old continuous crawl indices with the same prefix
+3. Start a new continuous crawl
+4. Wait for document cracking to complete
+5. Run PII detection using all YAML files in the directory
+6. Submit the index (unless in test/no-submit mode)
+
+### Example YAML Configurations
+
+The `yml_examples/` directory contains ready-to-use configurations for common PII types:
+
+- **`pii_medicare_with_checksum.yml`** - Australian Medicare numbers with checksum validation
+- **`pii_tfn_with_checksum.yml`** - Australian Tax File Numbers with checksum validation  
+- **`pii_passport.yml`** - Passport numbers (basic pattern matching)
+- **`pii_ssn.yml`** - US Social Security Numbers (basic pattern matching)
+
+You can use these as-is or modify them for your specific needs.
 
 ### YAML file guidelines
 
@@ -72,6 +128,8 @@ The following flags are available:
 --async: Useful for long running updates, as this can be used to do pii analysis in the background and shows progress (exit the process monitor with ctrl-c).
 
 --search: Instead of updating matching documents with the PII flags returns the documents themselves. Useful for seeing what will be updated.
+
+--reverse: Appends "PII.{name}: false" to documents in the index that do NOT meet the yaml file criteria.
 
 ## Usage disclaimers
 
@@ -177,24 +235,12 @@ For example, with TFN validation enabled, the sequence "123 456 789" near "tax" 
 
 ### Adding New Checksum Algorithms
 
-Custom checksum algorithms can be added by creating `.painless` files in the `checksums/` directory. The script receives a `cleanMatch` variable (digits only) and should set `passChecksum = true` if validation passes.
+Create a copy of the template file.
 
-You can test custom algorithms in a painless lab by making the first two lines:
-
-```
-// Set passChecksum and cleanMatch to whatever you want below for testing in your painless lab
-boolean passChecksum = false;
-String cleanMatch = "1234567";
-// Anything on this line or above will be removed
+```bash
+cp checksums/template.painless checksums/{NEW_CHECKSUM_ALGORITHM}.painless
 ```
 
-Paste your checksum algorithm underneath that. If cleanMatch passes then the value of passChecksum should be updated to "true".
+Paste the content into a [painless lab](https://www.elastic.co/docs/explore-analyze/scripting/painless-lab).
 
-Make the final few lines:
-
-```
-// Return statement goes here so you can validate if passChecksum is working in your lab -  this line and anything below it will be removed
-return passChecksum
-```
-
-passChecksum will return true or false depending on the value you set in cleanMatch.
+From here you can develop and test the new algorithm.

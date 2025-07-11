@@ -1,9 +1,0 @@
-fieldName: HasTFN
-patternRegex:
-  - "[0-9]{3}"
-  - "[0-9]{3}"
-  - "[0-9]{3}"
-contextWords:
-  - tfn
-  - tax
-  - ato

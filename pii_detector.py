@@ -128,7 +128,7 @@ def build_context_query(context_words: List[str], field: str = "document_text") 
         }
     }]
 
-def build_complete_query(config: Dict[str, Any], field: str = "document_text", field_name: str = None) -> Dict[str, Any]:
+def build_complete_query(config: Dict[str, Any], field: str = "document_text", field_name: str = None, reverse: bool = False) -> Dict[str, Any]:
     """
     Build the complete Elasticsearch query combining context and pattern matching.
     Also filters out documents that already have the PII field set to prevent duplication.
@@ -137,6 +137,7 @@ def build_complete_query(config: Dict[str, Any], field: str = "document_text", f
         config: Configuration dictionary from YAML
         field: The field to search in
         field_name: The PII field name to check for existence (e.g., 'HasTFN')
+        reverse: If True, find documents that don't match the patterns
     
     Returns:
         Complete Elasticsearch query
@@ -189,22 +190,58 @@ def build_complete_query(config: Dict[str, Any], field: str = "document_text", f
         }
     }
     
-    # If field_name is provided, add filter to exclude documents that already have this PII field
-    if field_name:
-        return {
-            "bool": {
-                "must": [span_query],
-                "must_not": [
-                    {
-                        "exists": {
-                            "field": f"PII.{field_name}"
-                        }
-                    }
-                ]
-            }
+    # Always require document_text field to exist for PII analysis
+    document_text_exists = {
+        "exists": {
+            "field": "document_text"
         }
+    }
+    
+    # Build the query based on reverse mode
+    if reverse:
+        # Reverse mode: find documents that don't match the patterns but have document_text
+        if field_name:
+            return {
+                "bool": {
+                    "must": [document_text_exists],
+                    "must_not": [
+                        span_query,
+                        {
+                            "exists": {
+                                "field": f"PII.{field_name}"
+                            }
+                        }
+                    ]
+                }
+            }
+        else:
+            return {
+                "bool": {
+                    "must": [document_text_exists],
+                    "must_not": [span_query]
+                }
+            }
     else:
-        return span_query
+        # Normal mode: find documents that match the patterns and have document_text
+        if field_name:
+            return {
+                "bool": {
+                    "must": [document_text_exists, span_query],
+                    "must_not": [
+                        {
+                            "exists": {
+                                "field": f"PII.{field_name}"
+                            }
+                        }
+                    ]
+                }
+            }
+        else:
+            return {
+                "bool": {
+                    "must": [document_text_exists, span_query]
+                }
+            }
 
 def load_checksum_algorithm(algorithm_name: str) -> str:
     """
@@ -311,12 +348,13 @@ def build_checksum_regex(pattern_chunks: List[str], context_words: List[str]) ->
     # This finds context words followed by the pattern within reasonable distance
     return f"(?i)({context_regex})[\\s\\S]{{0,50}}?({pattern_regex})"
 
-def build_update_query(config: Dict[str, Any]) -> Dict[str, Any]:
+def build_update_query(config: Dict[str, Any], reverse: bool = False) -> Dict[str, Any]:
     """
     Build the complete update_by_query request.
     
     Args:
         config: Configuration dictionary from YAML
+        reverse: If True, generate reverse mode query (set field to false)
     
     Returns:
         Complete update_by_query payload
@@ -324,7 +362,16 @@ def build_update_query(config: Dict[str, Any]) -> Dict[str, Any]:
     field_name = config.get('fieldName', 'HasPII')
     checksum_algorithm = config.get('checksum')
     
-    if checksum_algorithm:
+    if reverse:
+        # Reverse mode: always set field to false, no checksum validation needed
+        return {
+            "script": {
+                "source": f"if (ctx._source.PII == null) {{ ctx._source.PII = new HashMap(); }} ctx._source.PII.put('{field_name}', false);",
+                "lang": "painless"
+            },
+            "query": build_complete_query(config, field_name=field_name, reverse=True)
+        }
+    elif checksum_algorithm:
         # Build checksum-enabled script
         pattern_chunks = config.get('patternRegex', [])
         context_words = config.get('contextWords', [])
@@ -373,12 +420,17 @@ def monitor_task(task_id: str, es_url: str = "http://localhost:9200", poll_inter
         while True:
             try:
                 response = requests.get(url)
-                if response.status_code == 404:
-                    print("Task completed or not found.")
-                    break
-                elif response.status_code == 200:
+                if response.status_code == 200:
                     task_info = response.json()
                     
+                    # Check if task is completed (completed flag is at root level)
+                    if task_info.get('completed', False):
+                        print(f"\n\nTask completed successfully!")
+                        if 'response' in task_info:
+                            print(json.dumps(task_info['response'], indent=2))
+                        break
+                    
+                    # Display progress information if task is still running
                     if 'task' in task_info:
                         task = task_info['task']
                         status = task.get('status', {})
@@ -389,17 +441,6 @@ def monitor_task(task_id: str, es_url: str = "http://localhost:9200", poll_inter
                               f"Updated: {status.get('updated', 0)} | "
                               f"Batches: {status.get('batches', 0)} | "
                               f"Version Conflicts: {status.get('version_conflicts', 0)}", end="")
-                        
-                        # Check if task is completed
-                        if task.get('completed', False):
-                            print(f"\n\nTask completed successfully!")
-                            if 'response' in task_info:
-                                print(json.dumps(task_info['response'], indent=2))
-                            break
-                    else:
-                        # Task might be completed, try to get final result
-                        print("\nTask appears to be completed.")
-                        break
                         
                 else:
                     print(f"\nError checking task status: {response.status_code}")
@@ -416,7 +457,7 @@ def monitor_task(task_id: str, es_url: str = "http://localhost:9200", poll_inter
         print(f"\n\nStopped monitoring task {task_id}. Task continues running in background.")
         print(f"You can check status manually at: {url}")
 
-def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False) -> None:
+def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, reverse: bool = False) -> None:
     """
     Execute a search query against Elasticsearch.
     
@@ -425,9 +466,11 @@ def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://loc
         index: Elasticsearch index name
         es_url: Elasticsearch URL
         dry_run: If True, print query instead of executing
+        reverse: If True, search for documents that don't match patterns
     """
+    field_name = config.get('fieldName', 'HasPII')
     query_payload = {
-        "query": build_complete_query(config)
+        "query": build_complete_query(config, field_name=field_name, reverse=reverse)
     }
     
     if dry_run:
@@ -447,7 +490,7 @@ def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://loc
         print(f"Error executing search: {e}")
         sys.exit(1)
 
-def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, async_mode: bool = False) -> None:
+def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, async_mode: bool = False, monitor_mode: bool = False, reverse: bool = False) -> None:
     """
     Execute the update_by_query against Elasticsearch.
     
@@ -456,34 +499,42 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
         index: Elasticsearch index name
         es_url: Elasticsearch URL
         dry_run: If True, print query instead of executing
-        async_mode: If True, run asynchronously and monitor progress
+        async_mode: If True, run asynchronously without monitoring
+        monitor_mode: If True, run asynchronously with progress monitoring
+        reverse: If True, update documents that don't match patterns with false
     """
-    update_payload = build_update_query(config)
+    update_payload = build_update_query(config, reverse=reverse)
     
     if dry_run:
         print("Generated Elasticsearch Query:")
         print(json.dumps(update_payload, indent=2))
         return
     
-    # Add async parameter if in async mode
-    async_param = "&wait_for_completion=false" if async_mode else ""
-    url = f"{es_url}/{index}/_update_by_query?pretty=true{async_param}"
+    # Add async parameter if in async or monitor mode
+    async_param = "&wait_for_completion=false" if (async_mode or monitor_mode) else ""
+    url = f"{es_url}/{index}/_update_by_query?pretty=true&conflicts=proceed{async_param}"
     headers = {"Content-Type": "application/json"}
     
     try:
         response = requests.post(url, json=update_payload, headers=headers)
         print(f"Update response status: {response.status_code}")
         
-        if async_mode and response.status_code == 200:
-            # Parse task ID from response and start monitoring
+        if (async_mode or monitor_mode) and response.status_code == 200:
+            # Parse task ID from response
             response_data = response.json()
             task_id = response_data.get('task')
             
             if task_id:
                 print(f"Task started with ID: {task_id}")
                 print(response.text)
-                print("\n" + "="*50)
-                monitor_task(task_id, es_url)
+                
+                if monitor_mode:
+                    # Start monitoring for monitor mode
+                    print("\n" + "="*50)
+                    monitor_task(task_id, es_url)
+                else:
+                    # For async mode, just print task ID and exit
+                    print(f"\nTask running in background. Monitor manually at: {es_url}/_tasks/{task_id}")
             else:
                 print("No task ID found in response:")
                 print(response.text)
@@ -496,16 +547,20 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
 
 def main():
     """Main function."""
-    if len(sys.argv) < 3 or len(sys.argv) > 6:
-        print("Usage: python pii_detector.py [--dry-run] [--async] [--search] <index> <config.yml>")
+    if len(sys.argv) < 3 or len(sys.argv) > 8:
+        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--reverse] <index> <config.yml>")
         print("  --dry-run: Preview query without executing")
-        print("  --async:   Run asynchronously and monitor progress")
+        print("  --async:   Run asynchronously without monitoring")
+        print("  --monitor: Run asynchronously with progress monitoring")
         print("  --search:  Execute search query instead of update")
+        print("  --reverse: Set PII field to false for documents that don't match patterns")
         sys.exit(1)
     
     dry_run = False
     async_mode = False
+    monitor_mode = False
     search_mode = False
+    reverse_mode = False
     args = sys.argv[1:]
     
     # Parse flags
@@ -517,28 +572,42 @@ def main():
         async_mode = True
         args.remove("--async")
     
+    if "--monitor" in args:
+        monitor_mode = True
+        args.remove("--monitor")
+    
     if "--search" in args:
         search_mode = True
         args.remove("--search")
     
+    if "--reverse" in args:
+        reverse_mode = True
+        args.remove("--reverse")
+    
     # Validate remaining arguments
     if len(args) != 2:
-        print("Usage: python pii_detector.py [--dry-run] [--async] [--search] <index> <config.yml>")
+        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--reverse] <index> <config.yml>")
         print("  --dry-run: Preview query without executing")
-        print("  --async:   Run asynchronously and monitor progress")
+        print("  --async:   Run asynchronously without monitoring")
+        print("  --monitor: Run asynchronously with progress monitoring")
         print("  --search:  Execute search query instead of update")
+        print("  --reverse: Set PII field to false for documents that don't match patterns")
         sys.exit(1)
     
     index = args[0]
     config_file = args[1]
     
     # Don't allow incompatible flags
-    if dry_run and async_mode:
-        print("Error: Cannot use both --dry-run and --async flags together")
+    if dry_run and (async_mode or monitor_mode):
+        print("Error: Cannot use --dry-run with --async or --monitor flags")
         sys.exit(1)
     
-    if search_mode and async_mode:
-        print("Error: Cannot use both --search and --async flags together")
+    if search_mode and (async_mode or monitor_mode):
+        print("Error: Cannot use --search with --async or --monitor flags")
+        sys.exit(1)
+    
+    if async_mode and monitor_mode:
+        print("Error: Cannot use both --async and --monitor flags together")
         sys.exit(1)
     
     config = load_config(config_file)
@@ -555,11 +624,12 @@ def main():
     print(f"Pattern chunks: {config['patternRegex']}")
     print(f"Context words: {config.get('contextWords', 'None')}")
     print(f"Checksum algorithm: {config.get('checksum', 'None')}")
+    print(f"Reverse mode: {reverse_mode}")
     
     if search_mode:
-        execute_search(config, index, dry_run=dry_run)
+        execute_search(config, index, dry_run=dry_run, reverse=reverse_mode)
     else:
-        execute_update(config, index, dry_run=dry_run, async_mode=async_mode)
+        execute_update(config, index, dry_run=dry_run, async_mode=async_mode, monitor_mode=monitor_mode, reverse=reverse_mode)
 
 if __name__ == "__main__":
     main()
