@@ -12,11 +12,12 @@ ES_URL="http://localhost:9200"
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--test|--no-submit] <index> <yaml_dir>"
-    echo "  --test      : Test mode - don't submit, delete index after, rollback stages"
-    echo "  --no-submit : Skip submission but keep index and don't rollback stages"
-    echo "  index       : Base index name for continuous crawl"
-    echo "  yaml_dir    : Directory containing YAML files for PII detection"
+    echo "Usage: $0 [--test|--no-submit] [--include-reverse] <index> <yaml_dir>"
+    echo "  --test           : Test mode - don't submit, delete index after, rollback stages"
+    echo "  --no-submit      : Skip submission but keep index and don't rollback stages"
+    echo "  --include-reverse: Include reverse PII detection (optional)"
+    echo "  index            : Base index name for continuous crawl"
+    echo "  yaml_dir         : Directory containing YAML files for PII detection"
     exit 1
 }
 
@@ -104,6 +105,7 @@ monitor_cracking() {
 run_pii_detection() {
     local new_index="$1"
     local yaml_dir="$2"
+    local include_reverse="$3"
     
     log "Running PII detection using bulk_custom_pii.sh"
     
@@ -113,8 +115,14 @@ run_pii_detection() {
         exit 1
     fi
     
-    # Run bulk PII detection
-    ./bulk_custom_pii.sh "$new_index" "$yaml_dir"
+    # Run bulk PII detection with or without reverse flag
+    if [[ "$include_reverse" == "true" ]]; then
+        log "Including reverse PII detection"
+        ./bulk_custom_pii.sh --include-reverse "$new_index" "$yaml_dir"
+    else
+        log "Running normal PII detection only"
+        ./bulk_custom_pii.sh "$new_index" "$yaml_dir"
+    fi
 }
 
 # Function to clean document_text
@@ -182,6 +190,7 @@ main() {
     # Parse command line arguments
     local test_mode=false
     local no_submit=false
+    local include_reverse=false
     local args=()
     
     while [[ $# -gt 0 ]]; do
@@ -192,6 +201,10 @@ main() {
                 ;;
             --no-submit)
                 no_submit=true
+                shift
+                ;;
+            --include-reverse)
+                include_reverse=true
                 shift
                 ;;
             -h|--help)
@@ -216,6 +229,7 @@ main() {
     log "Starting continuous crawl PII detection script"
     log "Test mode: $test_mode"
     log "No submit mode: $no_submit"
+    log "Include reverse detection: $include_reverse"
     log "Index: $index"
     log "YAML directory: $yaml_dir"
     
@@ -241,7 +255,7 @@ main() {
     monitor_cracking "$new_index"
     
     # Run PII detection
-    run_pii_detection "$new_index" "$yaml_dir"
+    run_pii_detection "$new_index" "$yaml_dir" "$include_reverse"
     
     if [[ "$test_mode" == true ]]; then
         log "Test mode: Skipping submission but keeping index for review"

@@ -11,14 +11,15 @@ ES_URL="http://localhost:9200"
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <index_name> <yaml_directory>"
-    echo "  index_name     : Elasticsearch index name to process"
-    echo "  yaml_directory : Directory containing YAML files for PII detection"
+    echo "Usage: $0 [--include-reverse] <index_name> <yaml_directory>"
+    echo "  --include-reverse : Optional flag to also run reverse PII detection"
+    echo "  index_name        : Elasticsearch index name to process"
+    echo "  yaml_directory    : Directory containing YAML files for PII detection"
     echo ""
     echo "This script will:"
     echo "1. Find all YAML files in the specified directory"
     echo "2. Run normal PII detection asynchronously for each YAML file"
-    echo "3. Run reverse PII detection asynchronously for each YAML file"
+    echo "3. If --include-reverse is specified, run reverse PII detection asynchronously for each YAML file"
     echo "4. Monitor task completion sequentially to avoid conflicts"
     exit 1
 }
@@ -98,6 +99,7 @@ extract_task_id() {
 run_pii_detection() {
     local index_name="$1"
     local yaml_dir="$2"
+    local include_reverse="$3"
     
     log "Running PII detection on index: $index_name using YAML files from: $yaml_dir"
     
@@ -133,19 +135,23 @@ run_pii_detection() {
         log "Normal PII detection task started: $normal_task_id"
         monitor_elasticsearch_task "$normal_task_id" "Normal PII detection for $(basename "$yaml_file")"
         
-        # Run reverse PII detection asynchronously
-        log "Running reverse PII detection..."
-        local reverse_output=$(python pii_detector.py --async --reverse "$index_name" "$yaml_file" 2>&1)
-        local reverse_task_id=$(extract_task_id "$reverse_output")
-        
-        if [[ -z "$reverse_task_id" ]]; then
-            log "ERROR: Failed to extract task ID from reverse PII detection output:"
-            log "$reverse_output"
-            exit 1
+        # Run reverse PII detection asynchronously only if --include-reverse flag is set
+        if [[ "$include_reverse" == "true" ]]; then
+            log "Running reverse PII detection..."
+            local reverse_output=$(python pii_detector.py --async --reverse "$index_name" "$yaml_file" 2>&1)
+            local reverse_task_id=$(extract_task_id "$reverse_output")
+            
+            if [[ -z "$reverse_task_id" ]]; then
+                log "ERROR: Failed to extract task ID from reverse PII detection output:"
+                log "$reverse_output"
+                exit 1
+            fi
+            
+            log "Reverse PII detection task started: $reverse_task_id"
+            monitor_elasticsearch_task "$reverse_task_id" "Reverse PII detection for $(basename "$yaml_file")"
+        else
+            log "Skipping reverse PII detection (--include-reverse not specified)"
         fi
-        
-        log "Reverse PII detection task started: $reverse_task_id"
-        monitor_elasticsearch_task "$reverse_task_id" "Reverse PII detection for $(basename "$yaml_file")"
         
         log "Completed processing: $yaml_file"
     done
@@ -180,24 +186,48 @@ validate_index() {
 main() {
     check_jq
     
+    # Parse arguments
+    local include_reverse="false"
+    local index_name=""
+    local yaml_dir=""
+    
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --include-reverse)
+                include_reverse="true"
+                shift
+                ;;
+            *)
+                if [[ -z "$index_name" ]]; then
+                    index_name="$1"
+                elif [[ -z "$yaml_dir" ]]; then
+                    yaml_dir="$1"
+                else
+                    log "ERROR: Too many arguments"
+                    usage
+                fi
+                shift
+                ;;
+        esac
+    done
+    
     # Check required arguments
-    if [[ $# -ne 2 ]]; then
+    if [[ -z "$index_name" || -z "$yaml_dir" ]]; then
         log "ERROR: Missing required arguments"
         usage
     fi
     
-    local index_name="$1"
-    local yaml_dir="$2"
-    
     log "Starting bulk custom PII detection"
     log "Index: $index_name"
     log "YAML directory: $yaml_dir"
+    log "Include reverse detection: $include_reverse"
     
     # Validate inputs
     validate_index "$index_name"
     
     # Run PII detection
-    run_pii_detection "$index_name" "$yaml_dir"
+    run_pii_detection "$index_name" "$yaml_dir" "$include_reverse"
     
     log "Bulk custom PII detection completed successfully"
 }

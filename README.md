@@ -42,7 +42,11 @@ Where config.yml is a yaml file that defines the flag name, regular expression, 
 For processing multiple YAML files against a single index:
 
 ```bash
+# Normal PII detection only (recommended for large datasets)
 ./bulk_custom_pii.sh <index_name> <yaml_directory>
+
+# Include reverse PII detection for complete coverage
+./bulk_custom_pii.sh --include-reverse <index_name> <yaml_directory>
 ```
 
 This script will automatically process all `.yml` files in the specified directory.
@@ -52,12 +56,17 @@ This script will automatically process all `.yml` files in the specified directo
 For automated continuous crawl with PII detection:
 
 ```bash
+# Normal PII detection only (recommended for production)
 ./continuous_crawl_pii.sh [--test|--no-submit] <index_prefix> <yaml_directory>
+
+# Include reverse PII detection for complete coverage
+./continuous_crawl_pii.sh [--test|--no-submit] --include-reverse <index_prefix> <yaml_directory>
 ```
 
 Options:
 - `--test`: Test mode - creates index, runs PII detection, then cleans up
 - `--no-submit`: Skip submission but keep the index for review
+- `--include-reverse`: Include reverse PII detection (marks non-matching documents as false)
 
 This script will:
 1. Configure FCE for document cracking only
@@ -130,6 +139,29 @@ The following flags are available:
 --search: Instead of updating matching documents with the PII flags returns the documents themselves. Useful for seeing what will be updated.
 
 --reverse: Appends "PII.{name}: false" to documents in the index that do NOT meet the yaml file criteria.
+
+### Performance Considerations
+
+#### Reverse PII Detection Warning
+
+**⚠️ IMPORTANT**: The `--include-reverse` flag can significantly increase processing time and resource usage, especially with large datasets containing millions or billions of documents.
+
+**When to use `--include-reverse`:**
+- **Small to medium datasets** (< 1 million documents): Safe to use for complete PII classification
+- **Development/testing environments**: Useful for comprehensive validation
+- **Compliance requirements**: When you need definitive "true/false" classification for every document
+
+**When to avoid `--include-reverse`:**
+- **Large production datasets** (> 10 million documents): Can cause extremely long processing times
+- **Time-sensitive operations**: When fast processing is more important than complete coverage
+- **Resource-constrained environments**: When Elasticsearch cluster resources are limited
+
+**Performance Impact:**
+- **Normal mode**: Only processes documents that match PII patterns (typically 1-5% of total documents)
+- **Reverse mode**: Must process ALL documents with `document_text` field (can be 100x more documents)
+- **Combined overhead**: Running both modes processes the entire dataset twice
+
+**Recommendation**: Start with normal PII detection only. Add `--include-reverse` only when complete dataset classification is specifically required and you have sufficient time and resources.
 
 ## Usage disclaimers
 
