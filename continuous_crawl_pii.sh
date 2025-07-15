@@ -88,8 +88,9 @@ monitor_cracking() {
         
         local step=$(echo "$status_response" | jq -r '.[0].step' 2>/dev/null || echo "unknown")
         local cracked_count=$(echo "$status_response" | jq -r '.[0].cracked_count' 2>/dev/null || echo "unknown")
+        local crawled_count=$(echo "$status_response" | jq -r '.[0].crawled_count' 2>/dev/null || echo "unknown")
         
-        log "Current step: $step, Cracked count: $cracked_count"
+        log "Current step: $step, $cracked_count out of $crawled_count cracked."
         
         if [[ "$step" == "finished_cracking" ]]; then
             log "Document cracking completed!"
