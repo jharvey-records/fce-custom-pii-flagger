@@ -490,6 +490,65 @@ def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://loc
         print(f"Error executing search: {e}")
         sys.exit(1)
 
+def ensure_field_mapping(field_name: str, index: str, es_url: str = "http://localhost:9200") -> None:
+    """
+    Ensure the PII field has a boolean mapping in the index.
+    
+    Args:
+        field_name: The PII field name (e.g., 'HasTFN')
+        index: Elasticsearch index name
+        es_url: Elasticsearch URL
+    """
+    mapping_url = f"{es_url}/{index}/_mapping"
+    headers = {"Content-Type": "application/json"}
+    
+    # Check current mapping
+    try:
+        response = requests.get(mapping_url)
+        if response.status_code == 200:
+            mapping = response.json()
+            
+            # Check if PII field mapping already exists and is boolean
+            index_mapping = mapping.get(index, {})
+            mappings = index_mapping.get('mappings', {})
+            
+            # Handle both new (_doc) and legacy mapping styles
+            properties = mappings.get('properties', {})
+            if not properties and '_doc' in mappings:
+                properties = mappings['_doc'].get('properties', {})
+            
+            # Check if PII object exists and field is already boolean
+            pii_properties = properties.get('PII', {}).get('properties', {})
+            field_mapping = pii_properties.get(field_name, {})
+            
+            if field_mapping.get('type') == 'boolean':
+                print(f"Field mapping for PII.{field_name} already exists as boolean")
+                return
+        
+        # Create or update the mapping using the _mapping/_doc endpoint
+        mapping_endpoint = f"{es_url}/{index}/_mapping/_doc"
+        mapping_payload = {
+            "properties": {
+                "PII": {
+                    "properties": {
+                        field_name: {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
+        }
+        
+        put_response = requests.put(mapping_endpoint, json=mapping_payload, headers=headers)
+        if put_response.status_code in [200, 201]:
+            print(f"Successfully set boolean mapping for PII.{field_name}")
+        else:
+            print(f"Warning: Failed to set mapping for PII.{field_name}: {put_response.status_code}")
+            print(put_response.text)
+            
+    except requests.RequestException as e:
+        print(f"Warning: Error setting field mapping: {e}")
+
 def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, async_mode: bool = False, monitor_mode: bool = False, reverse: bool = False) -> None:
     """
     Execute the update_by_query against Elasticsearch.
@@ -503,6 +562,12 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
         monitor_mode: If True, run asynchronously with progress monitoring
         reverse: If True, update documents that don't match patterns with false
     """
+    field_name = config.get('fieldName', 'HasPII')
+    
+    # Ensure field mapping is set as boolean before updating
+    if not dry_run:
+        ensure_field_mapping(field_name, index, es_url)
+    
     update_payload = build_update_query(config, reverse=reverse)
     
     if dry_run:
