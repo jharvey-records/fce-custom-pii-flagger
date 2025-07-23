@@ -215,13 +215,15 @@ To address this, the tool supports checksum validation which applies the officia
 
 ### Enabling Checksum Validation
 
+**⚠️ WARNING:** Checksums will increase processing time and resource requirements. Only use checksums if you are experiencing false positives and context words are not effective.
+
 For checksum validation to work you will need to update all of your elasticsearch containers in dockerfile-vm-es3-http.yaml to add the line
 
 ```
 - "script.painless.regex.enabled=true"
 ```
 
-You will also need to uncomment this line from the discover container
+You will also need to uncomment this line from the diskover container
 
 ```
 - TEXT_KEYWORD_SIZE=32000
@@ -276,3 +278,23 @@ cp checksums/template.painless checksums/{NEW_CHECKSUM_ALGORITHM}.painless
 Paste the content into a [painless lab](https://www.elastic.co/docs/explore-analyze/scripting/painless-lab).
 
 From here you can develop and test the new algorithm.
+
+## Troubleshooting
+
+### Max clause count exceeded 
+
+You may receive a runtime exception indicating you have hit a max clause count. This occurs when elastic queries become complex.
+
+The default clause count is 1024. To increase this you need to append this line to the environment section of each elasticsearch container in dockerfile-vm-es3-http.yaml:
+
+```
+- "indices.query.bool.max_clause_count=4096"
+```
+
+Redeploy FCE.
+
+You can verify if the increase was successful using this command:
+
+```bash
+curl -X GET "http://localhost:9200/_cluster/settings?include_defaults=true&filter_path=**.max_clause_count" | jq
+```
