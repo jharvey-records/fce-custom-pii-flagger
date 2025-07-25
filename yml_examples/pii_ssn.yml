@@ -1,8 +1,5 @@
 fieldName: HasSSN
-patternRegex:
-  - "[0-9]{3}"
-  - "[0-9]{2}"
-  - "[0-9]{4}"
+patternRegex: "[0-9]{3}[ -]?[0-9]{2}[ -]?[0-9]{4}"
 contextWords:
   - ssn
   - "social security"

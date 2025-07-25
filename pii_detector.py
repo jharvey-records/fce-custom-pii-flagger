@@ -30,165 +30,25 @@ def load_config(config_file: str) -> Dict[str, Any]:
         print(f"Error parsing YAML file: {e}")
         sys.exit(1)
 
-def build_pattern_query(pattern_chunks: List[str], field: str = "document_text") -> Dict[str, Any]:
-    """
-    Build a span query for pattern chunks that can handle separated digits.
-    
-    Args:
-        pattern_chunks: List of regex patterns (e.g., ["[0-9]{3}", "[0-9]{3}", "[0-9]{3}"])
-        field: The field to search in
-    
-    Returns:
-        Dict representing the span query for the pattern
-    """
-    if len(pattern_chunks) == 1:
-        # Single chunk, use span_multi directly
-        return {
-            "span_multi": {
-                "match": {
-                    "regexp": {
-                        field: pattern_chunks[0]
-                    }
-                }
-            }
-        }
-    
-    # Multiple chunks, use span_near to find them close together
-    span_clauses = []
-    for chunk in pattern_chunks:
-        span_clauses.append({
-            "span_multi": {
-                "match": {
-                    "regexp": {
-                        field: chunk
-                    }
-                }
-            }
-        })
-    
-    return {
-        "span_near": {
-            "clauses": span_clauses,
-            "slop": 0,  # Adjacent matches only - separators are handled by token boundaries
-            "in_order": True
-        }
-    }
+# Legacy span query functions removed - no longer needed with keyword regex approach
 
-def build_context_query(context_words: List[str], field: str = "document_text") -> List[Dict[str, Any]]:
+def build_complete_query(config: Dict[str, Any], field: str = "document_text", field_name: str = None, reverse: bool = False, search_mode: bool = False) -> Dict[str, Any]:
     """
-    Build span queries for context words, handling phrases with spaces.
-    Uses span_term for simple string matching (more efficient than regexp).
-    
-    Args:
-        context_words: List of context words/phrases to search for
-        field: The field to search in
-    
-    Returns:
-        List of span queries for context words
-    """
-    context_clauses = []
-    for word in context_words:
-        if ' ' in word:
-            # Handle phrases with spaces using span_near
-            word_parts = word.split()
-            if len(word_parts) > 1:
-                span_parts = []
-                for part in word_parts:
-                    span_parts.append({
-                        "span_term": {
-                            field: part.lower()  # Convert to lowercase for case-insensitive matching
-                        }
-                    })
-                context_clauses.append({
-                    "span_near": {
-                        "clauses": span_parts,
-                        "slop": 0,  # Exact phrase match
-                        "in_order": True
-                    }
-                })
-            else:
-                # Single word after splitting (shouldn't happen but safe fallback)
-                context_clauses.append({
-                    "span_term": {
-                        field: word.lower()
-                    }
-                })
-        else:
-            # Single word, use span_term directly
-            context_clauses.append({
-                "span_term": {
-                    field: word.lower()
-                }
-            })
-    
-    # Use span_or to match any of the context words/phrases
-    return [{
-        "span_or": {
-            "clauses": context_clauses
-        }
-    }]
-
-def build_complete_query(config: Dict[str, Any], field: str = "document_text", field_name: str = None, reverse: bool = False) -> Dict[str, Any]:
-    """
-    Build the complete Elasticsearch query combining context and pattern matching.
-    Also filters out documents that already have the PII field set to prevent duplication.
+    Build the complete Elasticsearch query using simplified keyword regex approach.
+    Uses document_text.keyword for regex patterns and query_string for context words.
     
     Args:
         config: Configuration dictionary from YAML
-        field: The field to search in
+        field: The field to search in (must have .keyword subfield)
         field_name: The PII field name to check for existence (e.g., 'HasTFN')
         reverse: If True, find documents that don't match the patterns
+        search_mode: If True, exclude PII field existence check (for --search flag)
     
     Returns:
         Complete Elasticsearch query
     """
-    pattern_chunks = config.get('patternRegex', [])
+    pattern_regex = config.get('patternRegex', '')
     context_words = config.get('contextWords', [])
-    
-    # Build the pattern query (handles both continuous and separated patterns)
-    continuous_pattern = "".join(pattern_chunks)  # Join chunks for continuous matching
-    
-    # Create two pattern matching approaches:
-    # 1. Continuous pattern (for cases like "288946270")
-    # 2. Separated chunks (for cases like "288 946 270" or "288-946-270")
-    
-    pattern_queries = []
-    
-    # Add continuous pattern match
-    pattern_queries.append({
-        "span_multi": {
-            "match": {
-                "regexp": {
-                    field: continuous_pattern
-                }
-            }
-        }
-    })
-    
-    # Add separated chunks match if we have multiple chunks
-    if len(pattern_chunks) > 1:
-        pattern_queries.append(build_pattern_query(pattern_chunks, field))
-    
-    # Combine pattern queries with span_or
-    pattern_clause = {
-        "span_or": {
-            "clauses": pattern_queries
-        }
-    } if len(pattern_queries) > 1 else pattern_queries[0]
-    
-    # Build context clauses
-    context_clauses = build_context_query(context_words, field) if context_words else []
-    
-    # Build the final span_near query combining context and pattern
-    span_clauses = context_clauses + [pattern_clause]
-    
-    span_query = {
-        "span_near": {
-            "clauses": span_clauses,
-            "slop": 5,  # Default proximity, can be made configurable
-            "in_order": True
-        }
-    }
     
     # Always require document_text field to exist for PII analysis
     document_text_exists = {
@@ -197,51 +57,64 @@ def build_complete_query(config: Dict[str, Any], field: str = "document_text", f
         }
     }
     
-    # Build the query based on reverse mode
+    # Build must clauses
+    must_clauses = [document_text_exists]
+    
+    # Add context query if context words exist
+    if context_words:
+        # Build query_string for context words, handling phrases
+        context_query_parts = []
+        for word in context_words:
+            if ' ' in word:
+                # Phrase with spaces - use quotes
+                context_query_parts.append(f'"{word}"')
+            else:
+                # Single word
+                context_query_parts.append(word)
+        
+        context_query = {
+            "query_string": {
+                "query": " OR ".join(context_query_parts),
+                "default_field": "document_text"
+            }
+        }
+        must_clauses.append(context_query)
+    
+    # Add pattern regex query for normal mode (reverse mode excludes this)
+    if not reverse:
+        pattern_query = {
+            "regexp": {
+                f"{field}.keyword": f".*{pattern_regex}.*"
+            }
+        }
+        must_clauses.append(pattern_query)
+    
+    # Build must_not clauses
+    must_not_clauses = []
+    
+    # Add field existence check to prevent duplication, except in search mode
+    if field_name and not search_mode:
+        must_not_clauses.append({
+            "exists": {
+                "field": f"PII.{field_name}"
+            }
+        })
+    
+    # For reverse mode, exclude documents that match the pattern
     if reverse:
-        # Reverse mode: find documents that don't match the patterns but have document_text
-        if field_name:
-            return {
-                "bool": {
-                    "must": [document_text_exists],
-                    "must_not": [
-                        span_query,
-                        {
-                            "exists": {
-                                "field": f"PII.{field_name}"
-                            }
-                        }
-                    ]
-                }
+        pattern_query = {
+            "regexp": {
+                f"{field}.keyword": f".*{pattern_regex}.*"
             }
-        else:
-            return {
-                "bool": {
-                    "must": [document_text_exists],
-                    "must_not": [span_query]
-                }
-            }
-    else:
-        # Normal mode: find documents that match the patterns and have document_text
-        if field_name:
-            return {
-                "bool": {
-                    "must": [document_text_exists, span_query],
-                    "must_not": [
-                        {
-                            "exists": {
-                                "field": f"PII.{field_name}"
-                            }
-                        }
-                    ]
-                }
-            }
-        else:
-            return {
-                "bool": {
-                    "must": [document_text_exists, span_query]
-                }
-            }
+        }
+        must_not_clauses.append(pattern_query)
+    
+    return {
+        "bool": {
+            "must": must_clauses,
+            "must_not": must_not_clauses
+        }
+    }
 
 def load_checksum_algorithm(algorithm_name: str) -> str:
     """
@@ -321,12 +194,12 @@ def trim_test_lines(script_content: str) -> str:
     
     return '\n'.join(core_lines)
 
-def build_checksum_regex(pattern_chunks: List[str], context_words: List[str]) -> str:
+def build_checksum_regex(pattern_regex: str, context_words: List[str]) -> str:
     """
     Build regex pattern for checksum validation.
     
     Args:
-        pattern_chunks: List of pattern chunks (e.g., ["[0-9]{3}", "[0-9]{3}", "[0-9]{3}"])
+        pattern_regex: Single regex pattern (e.g., "[0-9]{3}[\\s\\-]?[0-9]{3}[\\s\\-]?[0-9]{3}")
         context_words: List of context words
     
     Returns:
@@ -335,22 +208,16 @@ def build_checksum_regex(pattern_chunks: List[str], context_words: List[str]) ->
     # Join context words with pipe for OR logic
     context_regex = "|".join(context_words) if context_words else ".*"
     
-    # Build pattern with optional separators
-    pattern_parts = []
-    for i, chunk in enumerate(pattern_chunks):
-        pattern_parts.append(chunk)
-        if i < len(pattern_chunks) - 1:  # Add separator except for last chunk
-            pattern_parts.append("[\\s\\-]?")
-    
-    pattern_regex = "".join(pattern_parts)
+    # Escape slashes in pattern for Painless regex
+    escaped_pattern = pattern_regex.replace('/', '\\/')
     
     # Build complete regex - use capturing groups instead of lookbehind
     # This finds context words followed by the pattern within reasonable distance
-    return f"(?i)({context_regex})[\\s\\S]{{0,50}}?({pattern_regex})"
+    return f"(?i)({context_regex})[\\s\\S]{{0,50}}?({escaped_pattern})"
 
 def build_update_query(config: Dict[str, Any], reverse: bool = False) -> Dict[str, Any]:
     """
-    Build the complete update_by_query request.
+    Build the complete update_by_query request using proximity regex in scripts.
     
     Args:
         config: Configuration dictionary from YAML
@@ -361,6 +228,8 @@ def build_update_query(config: Dict[str, Any], reverse: bool = False) -> Dict[st
     """
     field_name = config.get('fieldName', 'HasPII')
     checksum_algorithm = config.get('checksum')
+    pattern_regex = config.get('patternRegex', '')
+    context_words = config.get('contextWords', [])
     
     if reverse:
         # Reverse mode: always set field to false, no checksum validation needed
@@ -372,17 +241,11 @@ def build_update_query(config: Dict[str, Any], reverse: bool = False) -> Dict[st
             "query": build_complete_query(config, field_name=field_name, reverse=True)
         }
     elif checksum_algorithm:
-        # Build checksum-enabled script
-        pattern_chunks = config.get('patternRegex', [])
-        context_words = config.get('contextWords', [])
-        
-        # Load checksum algorithm
+        # Build checksum-enabled script with proximity regex
         checksum_script = load_checksum_algorithm(checksum_algorithm)
+        regex_pattern = build_checksum_regex(pattern_regex, context_words)
         
-        # Build regex pattern
-        regex_pattern = build_checksum_regex(pattern_chunks, context_words)
-        
-        # Build the complete painless script with generic cleaning logic
+        # Build the complete painless script with proximity and checksum validation
         script_source = f"boolean passChecksum = false; Pattern pattern = /{regex_pattern}/; Matcher matcher = pattern.matcher(ctx._source.document_text); while (matcher.find()) {{ String rawMatch = matcher.group(2); String cleanMatch = /[^0-9]/.matcher(rawMatch).replaceAll(''); {checksum_script} if (passChecksum == true) {{ break; }} }} if (ctx._source.PII == null) {{ ctx._source.PII = new HashMap(); }} ctx._source.PII.put('{field_name}', passChecksum);"
         
         return {
@@ -393,10 +256,16 @@ def build_update_query(config: Dict[str, Any], reverse: bool = False) -> Dict[st
             "query": build_complete_query(config, field_name=field_name)
         }
     else:
-        # Original behavior without checksum
+        # Build proximity regex for non-checksum detection
+        regex_pattern = build_checksum_regex(pattern_regex, context_words)
+        
+        # Script that performs proximity detection without checksum validation
+        script_source = f"boolean foundMatch = false; Pattern pattern = /{regex_pattern}/; Matcher matcher = pattern.matcher(ctx._source.document_text); if (matcher.find()) {{ foundMatch = true; }} if (ctx._source.PII == null) {{ ctx._source.PII = new HashMap(); }} ctx._source.PII.put('{field_name}', foundMatch);"
+        
+        
         return {
             "script": {
-                "source": f"if (ctx._source.PII == null) {{ ctx._source.PII = new HashMap(); }} ctx._source.PII.put('{field_name}', true);",
+                "source": script_source,
                 "lang": "painless"
             },
             "query": build_complete_query(config, field_name=field_name)
@@ -470,7 +339,7 @@ def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://loc
     """
     field_name = config.get('fieldName', 'HasPII')
     query_payload = {
-        "query": build_complete_query(config, field_name=field_name, reverse=reverse)
+        "query": build_complete_query(config, field_name=field_name, reverse=reverse, search_mode=True)
     }
     
     if dry_run:
@@ -549,9 +418,57 @@ def ensure_field_mapping(field_name: str, index: str, es_url: str = "http://loca
     except requests.RequestException as e:
         print(f"Warning: Error setting field mapping: {e}")
 
+def validate_keyword_mapping(index: str, es_url: str = "http://localhost:9200") -> bool:
+    """
+    Validate that document_text.keyword field exists and is properly configured.
+    
+    Args:
+        index: Elasticsearch index name
+        es_url: Elasticsearch URL
+    
+    Returns:
+        True if keyword mapping exists, False otherwise
+    """
+    mapping_url = f"{es_url}/{index}/_mapping"
+    
+    try:
+        response = requests.get(mapping_url)
+        if response.status_code == 200:
+            mapping = response.json()
+            
+            # Navigate to document_text field mapping
+            index_mapping = mapping.get(index, {})
+            mappings = index_mapping.get('mappings', {})
+            
+            # Handle both new (_doc) and legacy mapping styles
+            properties = mappings.get('properties', {})
+            if not properties and '_doc' in mappings:
+                properties = mappings['_doc'].get('properties', {})
+            
+            # Check if document_text has keyword subfield
+            doc_text_mapping = properties.get('document_text', {})
+            fields = doc_text_mapping.get('fields', {})
+            keyword_field = fields.get('keyword', {})
+            
+            if keyword_field.get('type') == 'keyword':
+                print(f"✓ document_text.keyword field is properly configured")
+                return True
+            else:
+                print(f"✗ document_text.keyword field not found or not configured as keyword type")
+                print(f"Current document_text mapping: {doc_text_mapping}")
+                return False
+        else:
+            print(f"Error retrieving index mapping: {response.status_code}")
+            print(response.text)
+            return False
+            
+    except requests.RequestException as e:
+        print(f"Error checking index mapping: {e}")
+        return False
+
 def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, async_mode: bool = False, monitor_mode: bool = False, reverse: bool = False) -> None:
     """
-    Execute the update_by_query against Elasticsearch.
+    Execute the update_by_query against Elasticsearch with keyword mapping validation.
     
     Args:
         config: Configuration dictionary from YAML
@@ -564,8 +481,25 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
     """
     field_name = config.get('fieldName', 'HasPII')
     
-    # Ensure field mapping is set as boolean before updating
+    # Validate keyword mapping before proceeding
     if not dry_run:
+        if not validate_keyword_mapping(index, es_url):
+            print("\nERROR: document_text.keyword mapping is required but not found.")
+            print("Please ensure your Elasticsearch configuration includes:")
+            print("- TEXT_KEYWORD_SIZE=32000 in diskover container")
+            print("- script.painless.regex.enabled=true in elasticsearch containers")
+            print("\nThe document_text field must be mapped with a keyword subfield:")
+            print('"document_text": {')
+            print('  "type": "text",')
+            print('  "fields": {')
+            print('    "keyword": {')
+            print('      "type": "keyword",')
+            print('      "ignore_above": 32000')
+            print('    }')
+            print('  }')
+            print('}') 
+            sys.exit(1)
+        
         ensure_field_mapping(field_name, index, es_url)
     
     update_payload = build_update_query(config, reverse=reverse)
@@ -684,9 +618,15 @@ def main():
             print(f"Error: Required field '{field}' not found in configuration.")
             sys.exit(1)
     
+    # Ensure patternRegex is a string (not list for backward compatibility check)
+    if isinstance(config['patternRegex'], list):
+        print(f"Error: patternRegex must be a single string, not a list. Update your YAML file.")
+        print(f"Example: patternRegex: '[0-9]{{3}}[\\s\\-/]?[0-9]{{3}}[\\s\\-/]?[0-9]{{3}}'")
+        sys.exit(1)
+    
     print(f"Processing PII detection for index: {index}")
     print(f"Field name: {config['fieldName']}")
-    print(f"Pattern chunks: {config['patternRegex']}")
+    print(f"Pattern regex: {config['patternRegex']}")
     print(f"Context words: {config.get('contextWords', 'None')}")
     print(f"Checksum algorithm: {config.get('checksum', 'None')}")
     print(f"Reverse mode: {reverse_mode}")

@@ -23,7 +23,27 @@ For the shell scripts, ensure you have:
 
 ### FCE Configuration
 
-For checksum validation to work, you'll need to configure Elasticsearch. See the [Checksum Validation](#checksum-validation) section below for details.
+**⚠️ REQUIRED:** This tool requires specific Elasticsearch configuration to function properly. You must configure the following settings before using this tool:
+
+#### Required Elasticsearch Settings
+
+Update all elasticsearch containers in `dockerfile-vm-es3-http.yaml`:
+
+```yaml
+- "script.painless.regex.enabled=true"
+```
+
+Uncomment this line in the diskover container:
+
+```yaml
+- TEXT_KEYWORD_SIZE=32000
+```
+
+These settings enable:
+- **Painless regex support**: Required for proximity detection in all PII detection modes
+- **Keyword field mapping**: Required for efficient regex queries on `document_text.keyword` field
+
+**The tool will validate these settings and exit with an error if not properly configured.**
 
 ## Usage
 
@@ -93,40 +113,52 @@ Let's take as an example a Medicare number.
 
 ![Medicare card](images/medicarecard.png)
 
-This is a 10 digit number which is likely to appear in documents in one of two ways:
-1. A simple string of 10 continuous digits
-2. Formatted as per the number in the above medicare card:
-  - Four digits; followed by
-  - Five digits; followed by
-  - One digit (the issue number)
-
-In other words likely to appear stylised in documents as either "NNNN-NNNNN-N" OR "NNNN NNNNN N" OR simply "NNNNNNNNNN".
+This is a 10 digit number which is likely to appear in documents in various formats:
+- Continuous: "2953827364"
+- Spaced: "2953 82736 4"
+- Hyphenated: "2953-82736-4"
+- Mixed: "2953 827364" or "295382736 4"
 
 We know that we want the field name in RecordPoint to be HasMedicare.
 
-We know from analyzing the documents that the words "medicare", "bulk billing" or "mbs" (Medicare Benefits Schedule) are likely to appear shortly before the pattern.
+We know from analyzing the documents that the words "medicare", "bulk billing" or "mbs" (Medicare Benefits Schedule) are likely to appear within 50 characters of the pattern.
 
 Given this we would define the YAML file as such:
 
 ```yaml
 fieldName: HasMedicare
-patternRegex:
-  - "[0-9]{4}"
-  - "[0-9]{5}"
-  - "[0-9]{1}"
+patternRegex: "[0-9]{4}[ -]?[0-9]{5}[ -]?[0-9]{1}"
 contextWords:
   - medicare
   - "bulk billing"
   - mbs
 ```
 
-"fieldName" is how you want the field to appear in RecordPoint.
+**fieldName** is how you want the field to appear in RecordPoint.
 
 ![HasMedicare in RecordPoint](images/medicare_in_recordpoint.png)
 
-"patternRegex" is used to define the way that the ten digits are "split up" in a way that is typical of medicare numbers when written in forms or other documents. Don't worry, 10 consecutive digits will still be caught using this method!
+**patternRegex** is a single regular expression that matches the expected pattern. The `[ -]?` parts allow for optional spaces or dashes between number groups. This pattern will match:
+- `2953827364` (continuous)
+- `2953 82736 4` (spaces)
+- `2953-82736-4` (dashes)
+- `2953827364` (mixed formats)
 
-Finally "contextWords" is a requirement for at least one of these words to appear shortly before patternRegex in order to prevent a false positive.
+**contextWords** requires at least one of these words to appear within 50 characters of the pattern to prevent false positives.
+
+### Creating Pattern Regex
+
+Building regex patterns involves the following steps:
+
+1. **Define the core pattern**: Use standard regex syntax (e.g., `[0-9]{4}` for 4 digits)
+2. **Add separators**: Use `[ -]?` between groups to allow spaces, dashes, or no separator
+3. **Include additional characters**: For patterns like dates, use `[ -/]?` to include slashes
+4. **Test common formats**: Ensure your pattern matches expected variations
+
+**Examples:**
+- **Date of Birth**: `[0-9]{1,2}[ -/]?[0-9]{1,2}[ -/]?[0-9]{4}` matches `15/03/1985`, `15-03-1985`, `15 03 1985`
+- **Tax File Number**: `[0-9]{3}[ -]?[0-9]{3}[ -]?[0-9]{3}` matches `123 456 789`, `123-456-789`, `123456789`
+- **Social Security**: `[0-9]{3}[ -]?[0-9]{2}[ -]?[0-9]{4}` matches `123 45 6789`, `123-45-6789`
 
 ### Flags
 
@@ -136,7 +168,7 @@ The following flags are available:
 
 --async: Useful for long running updates, as this can be used to do pii analysis in the background and shows progress (exit the process monitor with ctrl-c).
 
---search: Instead of updating matching documents with the PII flags returns the documents themselves. Useful for seeing what will be updated.
+--search: Instead of updating matching documents with the PII flags, returns the documents themselves. Shows both processed and unprocessed documents that match PII patterns. Useful for verification and analysis.
 
 --reverse: Appends "PII.{name}: false" to documents in the index that do NOT meet the yaml file criteria.
 
@@ -217,26 +249,11 @@ To address this, the tool supports checksum validation which applies the officia
 
 **⚠️ WARNING:** Checksums will increase processing time and resource requirements. Only use checksums if you are experiencing false positives and context words are not effective.
 
-For checksum validation to work you will need to update all of your elasticsearch containers in dockerfile-vm-es3-http.yaml to add the line
-
-```
-- "script.painless.regex.enabled=true"
-```
-
-You will also need to uncomment this line from the diskover container
-
-```
-- TEXT_KEYWORD_SIZE=32000
-```
-
-Add a `checksum` field to your YAML configuration:
+To enable checksum validation, add a `checksum` field to your YAML configuration:
 
 ```yaml
 fieldName: HasTFN
-patternRegex:
-  - "[0-9]{3}"
-  - "[0-9]{3}"
-  - "[0-9]{3}"
+patternRegex: "[0-9]{3}[ -]?[0-9]{3}[ -]?[0-9]{3}"
 contextWords:
   - tfn
   - tax
@@ -253,10 +270,11 @@ checksum: weighted_mod_11
 
 When checksum validation is enabled:
 
-1. The system finds all potential matches using the normal pattern and context matching
-2. Each match is tested against the checksum algorithm
-3. Only patterns that pass checksum validation are flagged as PII
-4. Documents containing no valid patterns are marked with `false` instead of `true`
+1. The system uses keyword regex to find documents with potential PII patterns near context words
+2. Painless scripts extract matches within 50-character proximity of context words
+3. Each extracted match is cleaned (removing spaces/dashes) and tested against the checksum algorithm
+4. Only patterns that pass checksum validation result in `true` PII flags
+5. Documents with patterns that fail validation are marked with `false`
 
 For example, with TFN validation enabled, the sequence "123 456 789" near "tax" might match the pattern, but if it fails the weighted mod 11 checksum, the document will show `HasTFN: false`.
 
@@ -281,20 +299,10 @@ From here you can develop and test the new algorithm.
 
 ## Troubleshooting
 
-### Max clause count exceeded 
+### Document Text Keyword Mapping Error
 
-You may receive a runtime exception indicating you have hit a max clause count. This occurs when elastic queries become complex.
+If you see an error about `document_text.keyword` field not being found:
 
-The default clause count is 1024. To increase this you need to append this line to the environment section of each elasticsearch container in dockerfile-vm-es3-http.yaml:
-
-```
-- "indices.query.bool.max_clause_count=4096"
-```
-
-Redeploy FCE.
-
-You can verify if the increase was successful using this command:
-
-```bash
-curl -X GET "http://localhost:9200/_cluster/settings?include_defaults=true&filter_path=**.max_clause_count" | jq
-```
+1. Ensure `TEXT_KEYWORD_SIZE=32000` is uncommented in diskover container
+2. Redeploy FCE to apply the mapping changes
+3. The `document_text` field must be mapped with a keyword subfield for regex queries

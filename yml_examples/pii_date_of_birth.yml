@@ -1,0 +1,9 @@
+fieldName: HasDateOfBirth
+patternRegex: "[0-9]{1,2}[ -/]?[0-9]{1,2}[ -/]?[0-9]{4}"
+contextWords:
+  - "date of birth"
+  - "birth date"
+  - "born"
+  - "dob"
+  - "birthday"
+  - "birth"
