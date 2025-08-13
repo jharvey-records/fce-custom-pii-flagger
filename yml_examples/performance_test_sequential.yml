@@ -1,0 +1,10 @@
+fieldName: HasSequentialNumber
+patternRegex: "[0-9]{8,10}"
+contextWords:
+  - number
+  - id
+  - identifier
+  - sequence
+  - serial
+  - code
+  - reference

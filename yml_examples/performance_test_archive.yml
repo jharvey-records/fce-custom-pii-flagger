@@ -1,0 +1,10 @@
+fieldName: HasArchiveIdentifier
+patternRegex: "[A-Z0-9]{8,12}"
+contextWords:
+  - file
+  - archive
+  - digital
+  - collection
+  - repository
+  - catalog
+  - database

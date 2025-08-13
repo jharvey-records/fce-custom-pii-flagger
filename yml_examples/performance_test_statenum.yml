@@ -1,0 +1,10 @@
+fieldName: HasStateNumber
+patternRegex: "[0-9]{4}STATE|STATE[0-9]{4}"
+contextWords:
+  - state
+  - tax
+  - government
+  - filing
+  - "state tax"
+  - return
+  - form

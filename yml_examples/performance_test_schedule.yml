@@ -1,0 +1,10 @@
+fieldName: HasScheduleNumber
+patternRegex: "[0-9]{4}SCHEDULE"
+contextWords:
+  - schedule
+  - form
+  - tax
+  - document
+  - filing
+  - return
+  - "tax schedule"

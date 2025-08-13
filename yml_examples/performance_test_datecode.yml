@@ -1,0 +1,10 @@
+fieldName: HasDateCode
+patternRegex: "[0-9]{6,8}"
+contextWords:
+  - date
+  - filed
+  - submitted
+  - processed
+  - "date filed"
+  - timestamp
+  - created

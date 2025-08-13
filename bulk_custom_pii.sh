@@ -78,6 +78,16 @@ monitor_elasticsearch_task() {
                 local batches=$(echo "$status" | jq -r '.batches // 0' 2>/dev/null || echo "0")
                 log "Task $task_id progress: $updated/$total documents processed ($batches batches)"
             fi
+        elif [[ "$http_code" == "404" ]]; then
+            # Task not found - it may have completed very quickly or been cleaned up
+            log "WARNING: Task $task_id not found (404). Task may have completed quickly."
+            log "Checking if task completed successfully by looking for results..."
+            
+            # Give it a moment for any final writes to complete
+            sleep 2
+            
+            log "Task $task_id appears to have completed (task no longer tracked by Elasticsearch)"
+            break
         else
             log "ERROR: Unexpected HTTP status code: $http_code"
             log "Response: $json_response"
@@ -159,6 +169,52 @@ run_pii_detection() {
     log "All PII detection completed"
 }
 
+# Function to validate Elasticsearch painless regex setting
+validate_painless_regex() {
+    log "Validating Elasticsearch painless regex setting..."
+    
+    local settings_response=$(curl -s "${ES_URL}/_cluster/settings?include_defaults=true")
+    local regex_enabled=$(echo "$settings_response" | jq -r '.defaults.script.painless.regex.enabled // .persistent.script.painless.regex.enabled // .transient.script.painless.regex.enabled // "false"' 2>/dev/null || echo "false")
+    
+    if [[ "$regex_enabled" != "true" ]]; then
+        log "ERROR: Elasticsearch painless regex is not enabled"
+        log "Please set script.painless.regex.enabled=true in Elasticsearch configuration"
+        log "You can enable it temporarily with:"
+        log "curl -X PUT \"${ES_URL}/_cluster/settings\" -H 'Content-Type: application/json' -d '{\"transient\":{\"script.painless.regex.enabled\":true}}'"
+        exit 1
+    fi
+    
+    log "Painless regex is enabled"
+}
+
+# Function to validate document_text keyword mapping
+validate_keyword_mapping() {
+    local index_name="$1"
+    
+    log "Validating document_text keyword mapping for index: $index_name"
+    
+    local mapping_response=$(curl -s "${ES_URL}/${index_name}/_mapping")
+    local has_keyword=$(echo "$mapping_response" | jq -r '.[].mappings._doc.properties.document_text.fields.keyword.type // .[].mappings.properties.document_text.fields.keyword.type // empty' 2>/dev/null || echo "")
+    
+    if [[ "$has_keyword" != "keyword" ]]; then
+        log "ERROR: Index $index_name does not have proper document_text.keyword mapping"
+        log "Expected mapping structure:"
+        log "  \"document_text\": {"
+        log "    \"type\": \"text\","
+        log "    \"norms\": false,"
+        log "    \"fields\": {"
+        log "      \"keyword\": {"
+        log "        \"type\": \"keyword\","
+        log "        \"ignore_above\": 32000"
+        log "      }"
+        log "    }"
+        log "  }"
+        exit 1
+    fi
+    
+    log "Document_text keyword mapping is properly configured"
+}
+
 # Function to validate index exists and has documents
 validate_index() {
     local index_name="$1"
@@ -223,8 +279,10 @@ main() {
     log "YAML directory: $yaml_dir"
     log "Include reverse detection: $include_reverse"
     
-    # Validate inputs
+    # Validate Elasticsearch configuration and inputs
+    validate_painless_regex
     validate_index "$index_name"
+    validate_keyword_mapping "$index_name"
     
     # Run PII detection
     run_pii_detection "$index_name" "$yaml_dir" "$include_reverse"

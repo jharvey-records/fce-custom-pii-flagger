@@ -1,0 +1,61 @@
+// Set passChecksum and cleanMatch to whatever you want below for testing in your painless lab
+boolean passChecksum = false;
+String cleanMatch = "03178471";
+// Anything on this line or above will be removed
+
+// ISSN Mod 11 Checksum Algorithm
+// ISSN format: XXXX-XXXX with last digit as check digit
+// Weights: 8,7,6,5,4,3,2 for positions 1-7
+// Check digit calculation: 11 - (sum mod 11), with special handling for remainder 1 → 'X'
+
+if (cleanMatch != null && cleanMatch.length() >= 8) {
+    // Clean the match - remove spaces, hyphens, and convert to uppercase
+    String cleaned = cleanMatch.replaceAll("[\\s-]", "").toUpperCase();
+    
+    if (cleaned.length() == 8) {
+        // Extract first 7 digits and check digit
+        String digits = cleaned.substring(0, 7);
+        String checkDigit = cleaned.substring(7, 8);
+        
+        // Validate that first 7 characters are digits
+        boolean validDigits = true;
+        for (int i = 0; i < 7; i++) {
+            char c = digits.charAt(i);
+            if (c < '0' || c > '9') {
+                validDigits = false;
+                break;
+            }
+        }
+        
+        if (validDigits) {
+            // Calculate weighted sum using weights [8,7,6,5,4,3,2]
+            int sum = 0;
+            int[] weights = {8, 7, 6, 5, 4, 3, 2};
+            
+            for (int i = 0; i < 7; i++) {
+                int digit = Character.getNumericValue(digits.charAt(i));
+                sum += digit * weights[i];
+            }
+            
+            // Calculate check digit
+            int remainder = sum % 11;
+            String expectedCheckDigit;
+            
+            if (remainder == 0) {
+                expectedCheckDigit = "0";
+            } else if (remainder == 1) {
+                expectedCheckDigit = "X";  // Special case for remainder 1
+            } else {
+                expectedCheckDigit = String.valueOf(11 - remainder);
+            }
+            
+            // Validate against actual check digit
+            if (checkDigit.equals(expectedCheckDigit)) {
+                passChecksum = true;
+            }
+        }
+    }
+}
+
+// Return statement goes here so you can validate if passChecksum is working in your lab -  this line and anything below it will be removed
+return passChecksum

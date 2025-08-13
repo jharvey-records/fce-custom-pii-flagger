@@ -1,0 +1,10 @@
+fieldName: HasVersionNumber
+patternRegex: "[vV][0-9]{1,2}\\.[0-9]{1,2}|[0-9]{4}[A-Z]{2}"
+contextWords:
+  - version
+  - build
+  - release
+  - software
+  - "version number"
+  - update
+  - revision

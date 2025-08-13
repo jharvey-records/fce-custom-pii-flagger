@@ -1,0 +1,10 @@
+fieldName: HasMapReference
+patternRegex: "[0-9]{6}"
+contextWords:
+  - map
+  - collection
+  - geographic
+  - digitized
+  - "map collection"
+  - indiana
+  - university

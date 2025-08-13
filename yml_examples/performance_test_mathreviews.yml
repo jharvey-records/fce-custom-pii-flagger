@@ -1,0 +1,10 @@
+fieldName: HasMathReviews
+patternRegex: "MR[0-9]{5,8}"
+contextWords:
+  - mr
+  - mathreview
+  - mathematical
+  - review
+  - "math review"
+  - bibliography
+  - citation

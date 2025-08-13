@@ -1,0 +1,10 @@
+fieldName: HasCourseCode
+patternRegex: "[A-Z]{2,4}[0-9]{3,4}"
+contextWords:
+  - course
+  - class
+  - department
+  - university
+  - college
+  - subject
+  - curriculum

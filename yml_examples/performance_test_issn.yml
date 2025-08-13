@@ -1,0 +1,10 @@
+fieldName: HasISSN  
+patternRegex: "ISSN\\s*[0-9]{4}[-\\s]?[0-9]{4}"
+contextWords:
+  - issn
+  - journal
+  - serial
+  - publication
+  - periodical
+  - "serial number"
+checksum: issn_mod_11
