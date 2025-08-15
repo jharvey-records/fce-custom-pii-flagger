@@ -352,6 +352,11 @@ def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://loc
         ner_mode: If True, use named_entities field instead of PII field
     """
     field_name = config.get('fieldName', 'HasPII')
+    
+    # Ensure correct field mapping for NER mode
+    if not dry_run and ner_mode:
+        ensure_field_mapping(field_name, index, es_url, ner_mode=ner_mode)
+    
     query_payload = {
         "query": build_complete_query(config, field_name=field_name, reverse=reverse, search_mode=True, ner_mode=ner_mode)
     }
