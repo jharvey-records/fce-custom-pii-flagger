@@ -1,0 +1,9 @@
+fieldName: CustomerID
+patternRegex: "([0-9]{8}|[0-9]{11})"
+contextWords:
+  - customer
+  - client
+  - "cis key"
+  - "customer id"
+  - account
+

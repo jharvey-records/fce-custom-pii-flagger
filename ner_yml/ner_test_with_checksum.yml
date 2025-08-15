@@ -1,0 +1,6 @@
+fieldName: TestTFN
+patternRegex: "[0-9]{3}[ -]?[0-9]{3}[ -]?[0-9]{3}"
+contextWords:
+  - tfn
+  - tax
+checksum: weighted_mod_11

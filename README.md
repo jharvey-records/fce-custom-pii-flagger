@@ -98,12 +98,17 @@ This script will:
 
 ### Example YAML Configurations
 
-The `yml_examples/` directory contains ready-to-use configurations for common PII types:
+The `pii_yml/` directory contains ready-to-use configurations for common PII types:
 
 - **`pii_medicare_with_checksum.yml`** - Australian Medicare numbers with checksum validation
 - **`pii_tfn_with_checksum.yml`** - Australian Tax File Numbers with checksum validation  
 - **`pii_passport.yml`** - Passport numbers (basic pattern matching)
 - **`pii_ssn.yml`** - US Social Security Numbers (basic pattern matching)
+
+The `ner_yml/` directory contains Named Entity Recognition configurations:
+
+- **`ner_employee_id.yml`** - Employee ID extraction (Westpac F/L/M + 6 digits, St. George E/C + 5 digits)
+- **`ner_customer_id.yml`** - Customer ID/CIS Key extraction (8 or 11 digits)
 
 You can use these as-is or modify them for your specific needs.
 
@@ -296,6 +301,181 @@ cp checksums/template.painless checksums/{NEW_CHECKSUM_ALGORITHM}.painless
 Paste the content into a [painless lab](https://www.elastic.co/docs/explore-analyze/scripting/painless-lab).
 
 From here you can develop and test the new algorithm.
+
+## Named Entity Recognition (NER)
+
+The tool includes Named Entity Recognition capabilities specifically designed for structured entity extraction from documents. Unlike traditional PII detection which sets boolean flags, NER mode extracts and stores the actual entity values found in documents.
+
+### NER vs Traditional PII Detection
+
+| Feature | Traditional PII | NER Mode |
+|---------|----------------|----------|
+| **Output** | Boolean flags (true/false) | Actual extracted values |
+| **Storage Location** | `PII.{fieldName}` | `named_entities.{fieldName}` |
+| **Use Case** | Compliance flagging | Data extraction & analysis |
+| **Performance** | Faster processing | Slightly slower due to extraction |
+
+### Using NER Mode
+
+Enable NER mode with the `--ner` flag:
+
+```bash
+# Extract employee IDs using NER
+python pii_detector.py --ner <index_name> ner_yml/ner_employee_id.yml
+
+# Preview what will be extracted
+python pii_detector.py --ner --search <index_name> ner_yml/ner_customer_id.yml
+
+# Dry run to see the query structure
+python pii_detector.py --ner --dry-run <index_name> ner_yml/ner_employee_id.yml
+```
+
+### NER Configuration Files
+
+NER configurations use the same YAML structure as traditional PII but are stored in the `ner_yml/` directory:
+
+**Employee ID Example (`ner_yml/ner_employee_id.yml`):**
+```yaml
+fieldName: EmployeeID
+patternRegex: "([FLM][0-9]{6}|[EC][0-9]{5})"
+contextWords:
+  - employee
+  - staff
+  - worker
+  - personnel
+  - associate
+  - westpac
+  - "st george"
+  - "st. george"
+```
+
+**Customer ID Example (`ner_yml/ner_customer_id.yml`):**
+```yaml
+fieldName: CustomerID
+patternRegex: "([0-9]{8}|[0-9]{11})"
+contextWords:
+  - customer
+  - client
+  - "cis key"
+  - "customer id"
+  - account
+```
+
+### Supported Entity Types
+
+The tool comes with pre-configured NER patterns for:
+
+#### Employee IDs
+- **Westpac Format**: Letter (F/L/M) + 6 digits (e.g., `F075971`, `L256743`, `M834567`)
+- **St. George Format**: Letter (E/C) + 5 digits (e.g., `E28014`, `C73490`)
+
+#### Customer IDs / CIS Keys
+- **8-digit format**: `12345678`
+- **11-digit format**: `12345678901`
+
+### NER Output Format
+
+When NER processing completes, extracted entities are stored in the `named_entities` field:
+
+```json
+{
+  "_source": {
+    "filename": "employee_promotion_memo.docx",
+    "document_text": "Staff Member: F075971 has been promoted...",
+    "named_entities": {
+      "EmployeeID": "F075971"
+    }
+  }
+}
+```
+
+### Bulk NER Processing
+
+Use the bulk processing script with NER configurations:
+
+```bash
+# Process all NER configurations
+./bulk_custom_pii.sh <index_name> ner_yml
+
+# With reverse detection (marks non-matching documents as false)
+./bulk_custom_pii.sh --include-reverse <index_name> ner_yml
+```
+
+### NER with Continuous Crawl
+
+Integrate NER into continuous crawl workflows:
+
+```bash
+# Continuous crawl with NER extraction
+./continuous_crawl_pii.sh <index_prefix> ner_yml
+
+# Test mode with NER
+./continuous_crawl_pii.sh --test <index_prefix> ner_yml
+```
+
+### Creating Custom NER Patterns
+
+To create new NER entity types:
+
+1. **Create YAML configuration** in `ner_yml/` directory:
+```yaml
+fieldName: YourEntityName
+patternRegex: "your_regex_pattern"
+contextWords:
+  - context1
+  - context2
+```
+
+2. **Test the pattern** with search mode:
+```bash
+python pii_detector.py --ner --search <index_name> ner_yml/your_config.yml
+```
+
+3. **Execute extraction**:
+```bash
+python pii_detector.py --ner <index_name> ner_yml/your_config.yml
+```
+
+### NER Pattern Design Guidelines
+
+**Effective NER patterns should:**
+
+- **Use capturing groups**: Wrap the main pattern in parentheses for extraction
+- **Be specific enough**: Avoid overly broad patterns that match unrelated text
+- **Include relevant context**: Use context words that commonly appear near the entity
+- **Handle variations**: Account for different formatting (spaces, dashes, etc.)
+
+**Example Pattern Breakdown:**
+```yaml
+# This pattern matches both Westpac and St. George employee IDs
+patternRegex: "([FLM][0-9]{6}|[EC][0-9]{5})"
+#              ^-Group 1----^ ^-Group 2---^
+#              Westpac format  St.George format
+```
+
+### NER Performance Considerations
+
+- **Entity Extraction**: Slightly slower than boolean PII detection due to value extraction
+- **Storage Impact**: Named entities add to document size in Elasticsearch
+- **Query Performance**: Fast retrieval using structured `named_entities` field
+- **Memory Usage**: Minimal additional memory overhead
+
+### Use Cases for NER
+
+**Data Analytics:**
+- Extract customer IDs for analysis and reporting
+- Build customer journey mapping from document metadata
+- Identify employee involvement across documents
+
+**Compliance & Audit:**
+- Track specific entity references in documents  
+- Generate reports on entity data exposure
+- Support data lineage and governance initiatives
+
+**Integration:**
+- Export entity data to external systems
+- Feed data lakes with structured entity information
+- Enable advanced search and filtering capabilities
 
 ## Troubleshooting
 

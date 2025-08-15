@@ -1,0 +1,12 @@
+fieldName: EmployeeID
+patternRegex: "([FLM][0-9]{6}|[EC][0-9]{5})"
+contextWords:
+  - employee
+  - staff
+  - worker
+  - personnel
+  - associate
+  - westpac
+  - "st george"
+  - "st. george"
+

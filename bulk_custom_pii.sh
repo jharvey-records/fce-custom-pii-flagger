@@ -11,16 +11,19 @@ ES_URL="http://localhost:9200"
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--include-reverse] <index_name> <yaml_directory>"
+    echo "Usage: $0 [--include-reverse] [--ner] <index_name> <yaml_directory>"
     echo "  --include-reverse : Optional flag to also run reverse PII detection"
+    echo "  --ner             : Optional flag to run NER extraction instead of PII detection"
     echo "  index_name        : Elasticsearch index name to process"
-    echo "  yaml_directory    : Directory containing YAML files for PII detection"
+    echo "  yaml_directory    : Directory containing YAML files for detection"
     echo ""
     echo "This script will:"
     echo "1. Find all YAML files in the specified directory"
-    echo "2. Run normal PII detection asynchronously for each YAML file"
+    echo "2. Run detection asynchronously for each YAML file (PII or NER mode)"
     echo "3. If --include-reverse is specified, run reverse PII detection asynchronously for each YAML file"
     echo "4. Monitor task completion sequentially to avoid conflicts"
+    echo ""
+    echo "Note: --include-reverse cannot be used with --ner flag"
     exit 1
 }
 
@@ -110,8 +113,13 @@ run_pii_detection() {
     local index_name="$1"
     local yaml_dir="$2"
     local include_reverse="$3"
+    local ner_mode="$4"
     
-    log "Running PII detection on index: $index_name using YAML files from: $yaml_dir"
+    if [[ "$ner_mode" == "true" ]]; then
+        log "Running NER extraction on index: $index_name using YAML files from: $yaml_dir"
+    else
+        log "Running PII detection on index: $index_name using YAML files from: $yaml_dir"
+    fi
     
     if [[ ! -d "$yaml_dir" ]]; then
         log "ERROR: YAML directory does not exist: $yaml_dir"
@@ -131,22 +139,42 @@ run_pii_detection() {
     for yaml_file in "${yaml_files[@]}"; do
         log "Processing YAML file: $yaml_file"
         
-        # Run normal PII detection asynchronously
-        log "Running normal PII detection..."
-        local normal_output=$(python pii_detector.py --async "$index_name" "$yaml_file" 2>&1)
+        # Build command flags
+        local detection_flags="--async"
+        if [[ "$ner_mode" == "true" ]]; then
+            detection_flags="$detection_flags --ner"
+        fi
+        
+        # Run normal detection asynchronously
+        if [[ "$ner_mode" == "true" ]]; then
+            log "Running NER extraction..."
+        else
+            log "Running normal PII detection..."
+        fi
+        
+        local normal_output=$(python pii_detector.py $detection_flags "$index_name" "$yaml_file" 2>&1)
         local normal_task_id=$(extract_task_id "$normal_output")
         
         if [[ -z "$normal_task_id" ]]; then
-            log "ERROR: Failed to extract task ID from normal PII detection output:"
+            if [[ "$ner_mode" == "true" ]]; then
+                log "ERROR: Failed to extract task ID from NER extraction output:"
+            else
+                log "ERROR: Failed to extract task ID from normal PII detection output:"
+            fi
             log "$normal_output"
             exit 1
         fi
         
-        log "Normal PII detection task started: $normal_task_id"
-        monitor_elasticsearch_task "$normal_task_id" "Normal PII detection for $(basename "$yaml_file")"
+        if [[ "$ner_mode" == "true" ]]; then
+            log "NER extraction task started: $normal_task_id"
+            monitor_elasticsearch_task "$normal_task_id" "NER extraction for $(basename "$yaml_file")"
+        else
+            log "Normal PII detection task started: $normal_task_id"
+            monitor_elasticsearch_task "$normal_task_id" "Normal PII detection for $(basename "$yaml_file")"
+        fi
         
-        # Run reverse PII detection asynchronously only if --include-reverse flag is set
-        if [[ "$include_reverse" == "true" ]]; then
+        # Run reverse PII detection asynchronously only if --include-reverse flag is set and not in NER mode
+        if [[ "$include_reverse" == "true" && "$ner_mode" != "true" ]]; then
             log "Running reverse PII detection..."
             local reverse_output=$(python pii_detector.py --async --reverse "$index_name" "$yaml_file" 2>&1)
             local reverse_task_id=$(extract_task_id "$reverse_output")
@@ -159,6 +187,8 @@ run_pii_detection() {
             
             log "Reverse PII detection task started: $reverse_task_id"
             monitor_elasticsearch_task "$reverse_task_id" "Reverse PII detection for $(basename "$yaml_file")"
+        elif [[ "$include_reverse" == "true" && "$ner_mode" == "true" ]]; then
+            log "Skipping reverse detection (not supported in NER mode)"
         else
             log "Skipping reverse PII detection (--include-reverse not specified)"
         fi
@@ -244,6 +274,7 @@ main() {
     
     # Parse arguments
     local include_reverse="false"
+    local ner_mode="false"
     local index_name=""
     local yaml_dir=""
     
@@ -252,6 +283,10 @@ main() {
         case $1 in
             --include-reverse)
                 include_reverse="true"
+                shift
+                ;;
+            --ner)
+                ner_mode="true"
                 shift
                 ;;
             *)
@@ -274,20 +309,35 @@ main() {
         usage
     fi
     
-    log "Starting bulk custom PII detection"
+    # Validate flag combinations
+    if [[ "$include_reverse" == "true" && "$ner_mode" == "true" ]]; then
+        log "ERROR: --include-reverse cannot be used with --ner flag"
+        usage
+    fi
+    
+    if [[ "$ner_mode" == "true" ]]; then
+        log "Starting bulk NER extraction"
+    else
+        log "Starting bulk custom PII detection"
+    fi
     log "Index: $index_name"
     log "YAML directory: $yaml_dir"
     log "Include reverse detection: $include_reverse"
+    log "NER mode: $ner_mode"
     
     # Validate Elasticsearch configuration and inputs
     validate_painless_regex
     validate_index "$index_name"
     validate_keyword_mapping "$index_name"
     
-    # Run PII detection
-    run_pii_detection "$index_name" "$yaml_dir" "$include_reverse"
+    # Run PII detection or NER extraction
+    run_pii_detection "$index_name" "$yaml_dir" "$include_reverse" "$ner_mode"
     
-    log "Bulk custom PII detection completed successfully"
+    if [[ "$ner_mode" == "true" ]]; then
+        log "Bulk NER extraction completed successfully"
+    else
+        log "Bulk custom PII detection completed successfully"
+    fi
 }
 
 # Run main function with all arguments
