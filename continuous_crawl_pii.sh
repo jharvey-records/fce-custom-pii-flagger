@@ -12,12 +12,15 @@ ES_URL="http://localhost:9200"
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--test|--no-submit] [--include-reverse] <index> <yaml_dir>"
+    echo "Usage: $0 [--test|--no-submit] [--include-reverse] [--ner] <index> <yaml_dir>"
     echo "  --test           : Test mode - don't submit, delete index after, rollback stages"
     echo "  --no-submit      : Skip submission but keep index and don't rollback stages"
     echo "  --include-reverse: Include reverse PII detection (optional)"
+    echo "  --ner            : Run NER extraction instead of PII detection (optional)"
     echo "  index            : Base index name for continuous crawl"
     echo "  yaml_dir         : Directory containing YAML files for PII detection"
+    echo ""
+    echo "Note: --include-reverse cannot be used with --ner flag"
     exit 1
 }
 
@@ -107,8 +110,13 @@ run_pii_detection() {
     local new_index="$1"
     local yaml_dir="$2"
     local include_reverse="$3"
+    local ner_mode="$4"
     
-    log "Running PII detection using bulk_custom_pii.sh"
+    if [[ "$ner_mode" == "true" ]]; then
+        log "Running NER extraction using bulk_custom_pii.sh"
+    else
+        log "Running PII detection using bulk_custom_pii.sh"
+    fi
     
     # Check if bulk_custom_pii.sh exists
     if [[ ! -f "./bulk_custom_pii.sh" ]]; then
@@ -116,8 +124,11 @@ run_pii_detection() {
         exit 1
     fi
     
-    # Run bulk PII detection with or without reverse flag
-    if [[ "$include_reverse" == "true" ]]; then
+    # Run bulk processing with appropriate flags
+    if [[ "$ner_mode" == "true" ]]; then
+        log "Running NER extraction"
+        ./bulk_custom_pii.sh --ner "$new_index" "$yaml_dir"
+    elif [[ "$include_reverse" == "true" ]]; then
         log "Including reverse PII detection"
         ./bulk_custom_pii.sh --include-reverse "$new_index" "$yaml_dir"
     else
@@ -192,6 +203,7 @@ main() {
     local test_mode=false
     local no_submit=false
     local include_reverse=false
+    local ner_mode=false
     local args=()
     
     while [[ $# -gt 0 ]]; do
@@ -206,6 +218,10 @@ main() {
                 ;;
             --include-reverse)
                 include_reverse=true
+                shift
+                ;;
+            --ner)
+                ner_mode=true
                 shift
                 ;;
             -h|--help)
@@ -227,10 +243,21 @@ main() {
     local index="${args[0]}"
     local yaml_dir="${args[1]}"
     
-    log "Starting continuous crawl PII detection script"
+    # Validate flag combinations
+    if [[ "$include_reverse" == "true" && "$ner_mode" == "true" ]]; then
+        log "ERROR: --include-reverse cannot be used with --ner flag"
+        exit 1
+    fi
+    
+    if [[ "$ner_mode" == "true" ]]; then
+        log "Starting continuous crawl NER extraction script"
+    else
+        log "Starting continuous crawl PII detection script"
+    fi
     log "Test mode: $test_mode"
     log "No submit mode: $no_submit"
     log "Include reverse detection: $include_reverse"
+    log "NER mode: $ner_mode"
     log "Index: $index"
     log "YAML directory: $yaml_dir"
     
@@ -256,7 +283,7 @@ main() {
     monitor_cracking "$new_index"
     
     # Run PII detection
-    run_pii_detection "$new_index" "$yaml_dir" "$include_reverse"
+    run_pii_detection "$new_index" "$yaml_dir" "$include_reverse" "$ner_mode"
     
     if [[ "$test_mode" == true ]]; then
         log "Test mode: Skipping submission but keeping index for review"

@@ -73,7 +73,7 @@ This script will automatically process all `.yml` files in the specified directo
 
 ### Continuous Crawl Integration
 
-For automated continuous crawl with PII detection:
+For automated continuous crawl with PII detection or NER extraction:
 
 ```bash
 # Normal PII detection only (recommended for production)
@@ -81,19 +81,23 @@ For automated continuous crawl with PII detection:
 
 # Include reverse PII detection for complete coverage
 ./continuous_crawl_pii.sh [--test|--no-submit] --include-reverse <index_prefix> <yaml_directory>
+
+# NER extraction mode
+./continuous_crawl_pii.sh [--test|--no-submit] --ner <index_prefix> <yaml_directory>
 ```
 
 Options:
 - `--test`: Test mode - creates index, runs PII detection, then cleans up
 - `--no-submit`: Skip submission but keep the index for review
 - `--include-reverse`: Include reverse PII detection (marks non-matching documents as false)
+- `--ner`: Run NER extraction instead of PII detection (cannot be combined with --include-reverse)
 
 This script will:
 1. Configure FCE for document cracking only
 2. Prune old continuous crawl indices with the same prefix
 3. Start a new continuous crawl
 4. Wait for document cracking to complete
-5. Run PII detection using all YAML files in the directory
+5. Run PII detection or NER extraction using all YAML files in the directory
 6. Submit the index (unless in test/no-submit mode)
 
 ### Example YAML Configurations
@@ -107,7 +111,7 @@ The `pii_yml/` directory contains ready-to-use configurations for common PII typ
 
 The `ner_yml/` directory contains Named Entity Recognition configurations:
 
-- **`ner_employee_id.yml`** - Employee ID extraction (Westpac F/L/M + 6 digits, St. George E/C + 5 digits)
+- **`ner_employee_id.yml`** - Employee ID extraction (alphanumeric patterns with letter prefixes)
 - **`ner_customer_id.yml`** - Customer ID/CIS Key extraction (8 or 11 digits)
 
 You can use these as-is or modify them for your specific needs.
@@ -344,9 +348,6 @@ contextWords:
   - worker
   - personnel
   - associate
-  - westpac
-  - "st george"
-  - "st. george"
 ```
 
 **Customer ID Example (`ner_yml/ner_customer_id.yml`):**
@@ -366,8 +367,8 @@ contextWords:
 The tool comes with pre-configured NER patterns for:
 
 #### Employee IDs
-- **Westpac Format**: Letter (F/L/M) + 6 digits (e.g., `F075971`, `L256743`, `M834567`)
-- **St. George Format**: Letter (E/C) + 5 digits (e.g., `E28014`, `C73490`)
+- **Format A**: Letter (F/L/M) + 6 digits (e.g., `F075971`, `L256743`, `M834567`)
+- **Format B**: Letter (E/C) + 5 digits (e.g., `E28014`, `C73490`)
 
 #### Customer IDs / CIS Keys
 - **8-digit format**: `12345678`
@@ -407,11 +408,21 @@ Integrate NER into continuous crawl workflows:
 
 ```bash
 # Continuous crawl with NER extraction
-./continuous_crawl_pii.sh <index_prefix> ner_yml
+./continuous_crawl_pii.sh --ner <index_prefix> ner_yml
 
-# Test mode with NER
-./continuous_crawl_pii.sh --test <index_prefix> ner_yml
+# Test mode with NER (creates index, runs NER, then cleans up)
+./continuous_crawl_pii.sh --test --ner <index_prefix> ner_yml
+
+# No-submit mode with NER (skips submission but keeps index)
+./continuous_crawl_pii.sh --no-submit --ner <index_prefix> ner_yml
 ```
+
+**Important Notes:**
+- The `--ner` flag cannot be combined with `--include-reverse`
+- NER mode extracts actual entity values rather than setting boolean flags
+- Extracted entities are stored in the `named_entities` field
+- Use `ner_yml/` directory for NER configurations
+
 
 ### Creating Custom NER Patterns
 
@@ -447,10 +458,10 @@ python pii_detector.py --ner <index_name> ner_yml/your_config.yml
 
 **Example Pattern Breakdown:**
 ```yaml
-# This pattern matches both Westpac and St. George employee IDs
+# This pattern matches two different employee ID formats
 patternRegex: "([FLM][0-9]{6}|[EC][0-9]{5})"
 #              ^-Group 1----^ ^-Group 2---^
-#              Westpac format  St.George format
+#              Format A       Format B
 ```
 
 ### NER Performance Considerations
