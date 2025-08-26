@@ -4,8 +4,6 @@
 # This script handles PII detection for any Elasticsearch index using custom YAML configurations
 # Can be used by both initial crawls and continuous crawls
 
-set -e
-
 # Configuration
 ES_URL="http://localhost:9200"
 
@@ -136,6 +134,9 @@ run_pii_detection() {
     
     log "Found ${#yaml_files[@]} YAML files to process"
     
+    local processed_count=0
+    local failed_count=0
+    
     for yaml_file in "${yaml_files[@]}"; do
         log "Processing YAML file: $yaml_file"
         
@@ -153,6 +154,21 @@ run_pii_detection() {
         fi
         
         local normal_output=$(python pii_detector.py $detection_flags "$index_name" "$yaml_file" 2>&1)
+        local normal_exit_code=$?
+        
+        # Check if the command failed before trying to extract task ID
+        if [[ $normal_exit_code -ne 0 ]]; then
+            if [[ "$ner_mode" == "true" ]]; then
+                log "ERROR: NER extraction command failed with exit code $normal_exit_code:"
+            else
+                log "ERROR: PII detection command failed with exit code $normal_exit_code:"
+            fi
+            log "$normal_output"
+            log "Skipping this YAML file and continuing with the next one..."
+            ((failed_count++))
+            continue
+        fi
+        
         local normal_task_id=$(extract_task_id "$normal_output")
         
         if [[ -z "$normal_task_id" ]]; then
@@ -162,7 +178,9 @@ run_pii_detection() {
                 log "ERROR: Failed to extract task ID from normal PII detection output:"
             fi
             log "$normal_output"
-            exit 1
+            log "Skipping this YAML file and continuing with the next one..."
+            ((failed_count++))
+            continue
         fi
         
         if [[ "$ner_mode" == "true" ]]; then
@@ -177,16 +195,25 @@ run_pii_detection() {
         if [[ "$include_reverse" == "true" && "$ner_mode" != "true" ]]; then
             log "Running reverse PII detection..."
             local reverse_output=$(python pii_detector.py --async --reverse "$index_name" "$yaml_file" 2>&1)
-            local reverse_task_id=$(extract_task_id "$reverse_output")
+            local reverse_exit_code=$?
             
-            if [[ -z "$reverse_task_id" ]]; then
-                log "ERROR: Failed to extract task ID from reverse PII detection output:"
+            # Check if the reverse command failed before trying to extract task ID
+            if [[ $reverse_exit_code -ne 0 ]]; then
+                log "ERROR: Reverse PII detection command failed with exit code $reverse_exit_code:"
                 log "$reverse_output"
-                exit 1
+                log "Skipping reverse detection for this YAML file and continuing..."
+            else
+                local reverse_task_id=$(extract_task_id "$reverse_output")
+                
+                if [[ -z "$reverse_task_id" ]]; then
+                    log "ERROR: Failed to extract task ID from reverse PII detection output:"
+                    log "$reverse_output"
+                    log "Skipping reverse detection for this YAML file and continuing..."
+                else
+                    log "Reverse PII detection task started: $reverse_task_id"
+                    monitor_elasticsearch_task "$reverse_task_id" "Reverse PII detection for $(basename "$yaml_file")"
+                fi
             fi
-            
-            log "Reverse PII detection task started: $reverse_task_id"
-            monitor_elasticsearch_task "$reverse_task_id" "Reverse PII detection for $(basename "$yaml_file")"
         elif [[ "$include_reverse" == "true" && "$ner_mode" == "true" ]]; then
             log "Skipping reverse detection (not supported in NER mode)"
         else
@@ -194,9 +221,19 @@ run_pii_detection() {
         fi
         
         log "Completed processing: $yaml_file"
+        ((processed_count++))
     done
     
-    log "All PII detection completed"
+    log "Processing summary:"
+    log "  Successfully processed: $processed_count YAML files"
+    log "  Failed to process: $failed_count YAML files"
+    log "  Total files: ${#yaml_files[@]}"
+    
+    if [[ "$ner_mode" == "true" ]]; then
+        log "All NER extraction completed"
+    else
+        log "All PII detection completed"
+    fi
 }
 
 # Function to validate Elasticsearch painless regex setting

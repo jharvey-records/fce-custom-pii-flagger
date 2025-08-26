@@ -12,11 +12,12 @@ ES_URL="http://localhost:9200"
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--test|--no-submit] [--include-reverse] [--ner] <index> <yaml_dir>"
+    echo "Usage: $0 [--test|--no-submit] [--include-reverse] [--ner] [--force-resubmit] <index> <yaml_dir>"
     echo "  --test           : Test mode - don't submit, delete index after, rollback stages"
     echo "  --no-submit      : Skip submission but keep index and don't rollback stages"
     echo "  --include-reverse: Include reverse PII detection (optional)"
     echo "  --ner            : Run NER extraction instead of PII detection (optional)"
+    echo "  --force-resubmit : Remove last_submission_date fields to force resubmission (optional)"
     echo "  index            : Base index name for continuous crawl"
     echo "  yaml_dir         : Directory containing YAML files for PII detection"
     echo ""
@@ -181,6 +182,142 @@ delete_index() {
     log "Delete index response: $response"
 }
 
+# Function to monitor Elasticsearch task completion
+monitor_task() {
+    local task_id="$1"
+    local task_description="$2"
+    
+    log "Monitoring $task_description (task: $task_id)"
+    
+    while true; do
+        local task_response=$(curl -s --request GET \
+            --url "${ES_URL}/_tasks/${task_id}?pretty" \
+            --header 'authorization: Basic ZWxhc3RpYzpjaGFuZ2VtZQ==')
+        
+        # Check if task is completed (no longer exists)
+        if echo "$task_response" | grep -q '"found" : false'; then
+            log "$task_description completed successfully"
+            break
+        fi
+        
+        # Check if task is completed by looking for "completed" status
+        if echo "$task_response" | grep -q '"completed" : true'; then
+            log "$task_description completed successfully"
+            break
+        fi
+        
+        # Extract progress information
+        local total=$(echo "$task_response" | grep -o '"total" : [0-9]*' | cut -d' ' -f3 || echo "unknown")
+        local updated=$(echo "$task_response" | grep -o '"updated" : [0-9]*' | cut -d' ' -f3 || echo "unknown")
+        local batches=$(echo "$task_response" | grep -o '"batches" : [0-9]*' | cut -d' ' -f3 || echo "unknown")
+        
+        # If we have progress info and total equals updated, consider it done
+        if [[ "$total" != "unknown" && "$updated" != "unknown" && "$total" -eq "$updated" && "$total" -gt 0 ]]; then
+            log "$task_description appears complete: $updated/$total documents updated"
+            # Wait a bit more and check again to be sure
+            sleep 5
+            local verify_response=$(curl -s --request GET \
+                --url "${ES_URL}/_tasks/${task_id}?pretty" \
+                --header 'authorization: Basic ZWxhc3RpYzpjaGFuZ2VtZQ==')
+            
+            if echo "$verify_response" | grep -q '"found" : false' || echo "$verify_response" | grep -q '"completed" : true'; then
+                log "$task_description completed successfully"
+                break
+            fi
+        fi
+        
+        log "$task_description progress: $updated/$total documents updated, batches: $batches"
+        
+        sleep 10
+    done
+}
+
+# Function to update last_modified timestamp to current time
+update_last_modified_timestamp() {
+    local new_index="$1"
+    
+    log "WARNING: Artificially updating last_modified timestamps to force resubmission detection"
+    log "Updating last_modified timestamps for all documents in index: $new_index"
+    
+    # Get current timestamp in the same format as Elasticsearch
+    local current_timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S")
+    
+    local response=$(curl -s --request POST \
+        --url "${ES_URL}/${new_index}/_update_by_query?pretty=&wait_for_completion=false" \
+        --header 'authorization: Basic ZWxhc3RpYzpjaGFuZ2VtZQ==' \
+        --header 'content-type: application/json' \
+        --data "{
+            \"query\": {
+                \"bool\": {
+                    \"should\": [
+                        { \"term\": { \"doctype\": \"file\" } },
+                        { \"term\": { \"doctype\": \"directory\" } }
+                    ],
+                    \"minimum_should_match\": 1
+                }
+            },
+            \"script\": {
+                \"source\": \"ctx._source.last_modified = '${current_timestamp}'; if (ctx._source.file_diff == null) { ctx._source.file_diff = [:]; } ctx._source.file_diff.type = 'modified';\"
+            }
+        }")
+    
+    log "Update last_modified timestamp response: $response"
+    
+    # Extract task ID from response
+    local task_id=$(echo "$response" | grep -o '"task" : "[^"]*"' | cut -d'"' -f4)
+    
+    if [[ -z "$task_id" || "$task_id" == "null" ]]; then
+        log "ERROR: Failed to extract task ID from timestamp update response"
+        exit 1
+    fi
+    
+    log "Task ID for updating timestamps: $task_id"
+    
+    # Monitor task completion
+    monitor_task "$task_id" "last_modified timestamp update"
+    
+    log "All last_modified timestamps have been updated to: $current_timestamp"
+}
+
+# Function to remove last_submission_date fields for force resubmit
+remove_submission_dates() {
+    local new_index="$1"
+    
+    log "Removing last_submission_date fields from index: $new_index"
+    
+    local response=$(curl -s --request POST \
+        --url "${ES_URL}/${new_index}/_update_by_query?pretty=&wait_for_completion=false" \
+        --header 'authorization: Basic ZWxhc3RpYzpjaGFuZ2VtZQ==' \
+        --header 'content-type: application/json' \
+        --data '{
+            "query": {
+                "exists": {
+                    "field": "last_submission_date"
+                }
+            },
+            "script": {
+                "source": "ctx._source.remove('\''last_submission_date'\'');"
+            }
+        }')
+    
+    log "Remove last_submission_date response: $response"
+    
+    # Extract task ID from response
+    local task_id=$(echo "$response" | grep -o '"task" : "[^"]*"' | cut -d'"' -f4)
+    
+    if [[ -z "$task_id" || "$task_id" == "null" ]]; then
+        log "ERROR: Failed to extract task ID from response"
+        exit 1
+    fi
+    
+    log "Task ID for removing submission dates: $task_id"
+    
+    # Monitor task completion
+    monitor_task "$task_id" "last_submission_date removal"
+    
+    log "All last_submission_date fields have been removed successfully"
+}
+
 # Function to rollback continuous crawl stages (for test mode)
 rollback_crawl_stages() {
     log "Rolling back continuous crawl stages to default..."
@@ -204,6 +341,7 @@ main() {
     local no_submit=false
     local include_reverse=false
     local ner_mode=false
+    local force_resubmit=false
     local args=()
     
     while [[ $# -gt 0 ]]; do
@@ -222,6 +360,10 @@ main() {
                 ;;
             --ner)
                 ner_mode=true
+                shift
+                ;;
+            --force-resubmit)
+                force_resubmit=true
                 shift
                 ;;
             -h|--help)
@@ -258,6 +400,7 @@ main() {
     log "No submit mode: $no_submit"
     log "Include reverse detection: $include_reverse"
     log "NER mode: $ner_mode"
+    log "Force resubmit: $force_resubmit"
     log "Index: $index"
     log "YAML directory: $yaml_dir"
     
@@ -292,6 +435,15 @@ main() {
     elif [[ "$no_submit" == true ]]; then
         log "No submit mode: Skipping submission but keeping index"
     else
+        # Handle force resubmit if requested
+        if [[ "$force_resubmit" == true ]]; then
+            # First update timestamps to fake file changes
+            update_last_modified_timestamp "$new_index"
+            
+            # Then remove submission dates to trigger resubmission
+            remove_submission_dates "$new_index"
+        fi
+        
         # Submit index
         submit_index "$new_index"
     fi

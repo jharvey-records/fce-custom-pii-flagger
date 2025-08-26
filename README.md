@@ -84,6 +84,9 @@ For automated continuous crawl with PII detection or NER extraction:
 
 # NER extraction mode
 ./continuous_crawl_pii.sh [--test|--no-submit] --ner <index_prefix> <yaml_directory>
+
+# Force resubmission of all documents (removes previous submission dates)
+./continuous_crawl_pii.sh --force-resubmit <index_prefix> <yaml_directory>
 ```
 
 Options:
@@ -91,6 +94,9 @@ Options:
 - `--no-submit`: Skip submission but keep the index for review
 - `--include-reverse`: Include reverse PII detection (marks non-matching documents as false)
 - `--ner`: Run NER extraction instead of PII detection (cannot be combined with --include-reverse)
+- `--force-resubmit`: Remove last_submission_date fields to force resubmission of all documents
+
+**⚠️ WARNING**: The `--force-resubmit` flag permanently modifies document metadata by artificially updating `last_modified` timestamps to fake file changes. This is required because FCE only recognizes documents with changed modification dates as resubmission candidates. Use with caution as original timestamp information will be lost.
 
 This script will:
 1. Configure FCE for document cracking only
@@ -98,7 +104,42 @@ This script will:
 3. Start a new continuous crawl
 4. Wait for document cracking to complete
 5. Run PII detection or NER extraction using all YAML files in the directory
-6. Submit the index (unless in test/no-submit mode)
+6. Remove last_submission_date fields if `--force-resubmit` is specified
+7. Submit the index (unless in test/no-submit mode)
+
+#### Force Resubmission
+
+The `--force-resubmit` flag is used when you need to resubmit documents that have already been submitted to downstream systems. This is typically required when:
+
+**Common Use Cases:**
+- **Adding new PII types**: Customer requires detection of additional PII patterns after initial submission
+- **Configuration changes**: PII detection rules have been updated and need to be reapplied
+- **Data correction**: Previous PII detection results need to be updated due to improved patterns or checksums
+- **Compliance updates**: New regulatory requirements necessitate reprocessing of all documents
+
+**How it works:**
+1. **Timestamp modification**: Artificially updates `last_modified` timestamps to current time and sets `file_diff.type = 'modified'` for all documents
+2. **Background task execution**: Removes `last_submission_date` fields using an asynchronous Elasticsearch update_by_query operation
+3. **Progress monitoring**: Tracks both timestamp updates and field removal progress with real-time updates showing documents processed and batches completed  
+4. **Completion verification**: Waits for all operations to complete before proceeding with submission
+5. **Forced resubmission**: Documents appear "changed" with recent timestamps and no submission dates, triggering resubmission to downstream systems
+
+**Important Considerations:**
+- **⚠️ Timestamp Modification**: The script artificially modifies `last_modified` timestamps to fake file changes, as FCE requires changed modification dates to recognize resubmission candidates
+- **Processing time**: Both timestamp updates and field removal run as background tasks and may take significant time for large indexes
+- **Resource usage**: The update operations process ALL documents in the index (for timestamps) and all documents with `last_submission_date` fields
+- **Downstream impact**: All affected documents will be resubmitted to integrated systems (RecordPoint, etc.) with artificially updated modification dates
+- **Metadata integrity**: Original file modification timestamps are permanently altered in the index metadata
+- **Use sparingly**: Only use when genuinely needed for new PII requirements, as it triggers complete reprocessing and modifies document metadata
+
+**Example Usage:**
+```bash
+# Add new PII detection to existing submitted index
+./continuous_crawl_pii.sh --force-resubmit customer_docs pii_yml
+
+# Test mode with force resubmit (for validation)  
+./continuous_crawl_pii.sh --test --force-resubmit customer_docs pii_yml
+```
 
 ### Example YAML Configurations
 
