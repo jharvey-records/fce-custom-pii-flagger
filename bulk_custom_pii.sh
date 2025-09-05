@@ -106,6 +106,72 @@ extract_task_id() {
     echo "$output" | grep -o "Task started with ID: [^[:space:]]*" | sed 's/Task started with ID: //'
 }
 
+# Function to validate YAML files before processing
+validate_yaml_files() {
+    local yaml_dir="$1"
+    
+    log "Validating YAML files in directory: $yaml_dir"
+    
+    # Find all YAML files in the directory
+    local yaml_files=($(find "$yaml_dir" -name "*.yml" -o -name "*.yaml"))
+    
+    if [[ ${#yaml_files[@]} -eq 0 ]]; then
+        log "ERROR: No YAML files found in directory: $yaml_dir"
+        exit 1
+    fi
+    
+    local invalid_files=()
+    
+    for yaml_file in "${yaml_files[@]}"; do
+        log "Validating YAML syntax: $yaml_file"
+        
+        # Use Python to validate YAML syntax
+        python3 -c "
+import yaml
+import sys
+
+try:
+    with open(sys.argv[1], 'r') as f:
+        yaml.safe_load(f)
+    print('VALID')
+except yaml.YAMLError as e:
+    print(f'YAML_ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f'FILE_ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+" "$yaml_file" > /tmp/yaml_validation_output 2>&1
+        
+        local validation_exit_code=$?
+        local validation_output=$(cat /tmp/yaml_validation_output)
+        
+        if [[ $validation_exit_code -ne 0 ]]; then
+            log "ERROR: YAML validation failed for $yaml_file:"
+            log "$validation_output"
+            invalid_files+=("$yaml_file")
+        else
+            log "YAML file is valid: $(basename "$yaml_file")"
+        fi
+    done
+    
+    if [[ ${#invalid_files[@]} -gt 0 ]]; then
+        log "FATAL: Found ${#invalid_files[@]} YAML files with syntax errors:"
+        for invalid_file in "${invalid_files[@]}"; do
+            log "  - $invalid_file"
+        done
+        log "Please fix the YAML syntax errors before running bulk processing."
+        log "Common YAML issues:"
+        log "  - Unescaped quotes in double-quoted strings (use single quotes or escape backslashes)"
+        log "  - Missing quotes around special characters"
+        log "  - Incorrect indentation"
+        log "  - Missing colons after keys"
+        log "STOPPING EXECUTION DUE TO YAML VALIDATION FAILURES"
+        exit 1
+    fi
+    
+    log "All ${#yaml_files[@]} YAML files passed syntax validation"
+}
+
 # Function to run PII detection on all YAML files
 run_pii_detection() {
     local index_name="$1"
@@ -366,6 +432,11 @@ main() {
     validate_painless_regex
     validate_index "$index_name"
     validate_keyword_mapping "$index_name"
+    
+    # Validate YAML files before processing
+    log "About to run YAML validation on directory: $yaml_dir"
+    validate_yaml_files "$yaml_dir"
+    log "YAML validation completed successfully - proceeding with processing"
     
     # Run PII detection or NER extraction
     run_pii_detection "$index_name" "$yaml_dir" "$include_reverse" "$ner_mode"
