@@ -529,6 +529,139 @@ patternRegex: "([FLM][0-9]{6}|[EC][0-9]{5})"
 - Feed data lakes with structured entity information
 - Enable advanced search and filtering capabilities
 
+## RecordPoint Integration - Document Submission Control
+
+For customers using RecordPoint SaaS integration who want to ensure **only documents with detected PII are submitted** to RecordPoint, use the document submission control script.
+
+### When to Use Document Submission Control
+
+**Primary Use Case:**
+Some customers require that **only documents containing PII** are submitted to RecordPoint for compliance processing, while documents without PII should be excluded from submission to reduce storage costs and processing overhead.
+
+**How it works:**
+- Documents with PII detection results that include at least one `true` value remain eligible for RecordPoint submission
+- Documents without any PII fields OR documents where all PII fields are `false` are marked with submission exclusion rules
+- The exclusion works by setting `rule_outcome: "Do not submit"` and `rules_name: "Has no PII"` fields that FCE recognizes as submission exemption criteria
+
+### Script Usage
+
+```bash
+# Basic usage with default settings (500 req/sec, 1000 docs/batch)
+./apply_rules_no_pii_documents.sh <index_name>
+
+# Conservative settings for busy production systems
+./apply_rules_no_pii_documents.sh <index_name> --rate-limit=50 --scroll-size=200
+
+# Maximum performance for idle systems
+./apply_rules_no_pii_documents.sh <index_name> --rate-limit=1000 --scroll-size=2000
+
+# With monitoring timeout for testing
+./apply_rules_no_pii_documents.sh <index_name> --rate-limit=100 --watch-timeout=30
+```
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--rate-limit=N` | 500 | Requests per second to Elasticsearch |
+| `--scroll-size=N` | 1000 | Documents processed per batch |
+| `--watch-timeout=N` | unlimited | Stop monitoring after N seconds |
+
+### Performance Guidelines
+
+**Rate Limit Recommendations:**
+- **Conservative (busy production):** 10-50 req/sec
+- **Balanced (normal production):** 100-200 req/sec  
+- **Aggressive (idle systems):** 500+ req/sec
+
+**Scroll Size Recommendations:**
+- **Small datasets (< 100K docs):** 100-500 docs/batch
+- **Medium datasets (100K-1M docs):** 500-1000 docs/batch
+- **Large datasets (> 1M docs):** 1000-2000 docs/batch
+
+### Integration Workflow
+
+**Recommended sequence for RecordPoint customers:**
+
+1. **Crawl and crack documents:**
+   ```bash
+   # Set up FCE index with document processing
+   curl --request POST --url 'http://localhost:8001/v1/indexes/customer_docs/crawl?host_dir=production&data_dir=%2Fdata'
+   curl --request POST --url 'http://localhost:8001/v1/indexes/customer_docs/crack-docs'
+   ```
+
+2. **Run PII detection:**
+   ```bash
+   # Detect PII using all available patterns
+   ./bulk_custom_pii.sh customer_docs pii_yml
+   ```
+
+3. **Apply submission control rules:**
+   ```bash
+   # Mark documents without PII for exclusion from RecordPoint
+   ./apply_rules_no_pii_documents.sh customer_docs --rate-limit=100
+   ```
+
+4. **Submit to RecordPoint:**
+   ```bash
+   # Only documents with PII will be submitted
+   curl --request POST --url 'http://localhost:8001/v1/indexes/customer_docs/submit'
+   ```
+
+### Monitoring and Progress Tracking
+
+The script provides real-time monitoring with detailed progress information:
+
+```
+[00:05:30] Progress: 15750/156000 (10%) | Batches: 16 | Rate: 52 docs/sec | ETA: 45m12s
+  🕒 Throttled time: 12s (rate limited to 100 req/sec)
+  📈 Rate limit: 100.0 req/sec
+```
+
+**Progress indicators:**
+- **Timer:** Elapsed time in `[HH:MM:SS]` format
+- **Progress:** Current/total documents with percentage
+- **Rate:** Actual processing rate in documents per second
+- **ETA:** Estimated time to completion
+- **Throttling:** Time spent waiting due to rate limits
+- **Batches:** Number of processing batches completed
+
+### Document Classification Results
+
+After running the script, documents are classified as:
+
+**Documents that WILL be submitted to RecordPoint:**
+- Documents with at least one PII field set to `true`
+- Documents that already have `rule_outcome` fields from previous processing
+
+**Documents that will NOT be submitted to RecordPoint:**
+- Documents with no PII fields detected
+- Documents where all PII fields are `false` (pattern matched but failed validation)
+
+### Verification
+
+Check the results after processing:
+
+```bash
+# Count documents marked for exclusion
+curl -X GET "localhost:9200/INDEX_NAME/_search?size=0" \
+  -H 'content-type: application/json' \
+  -d '{"query": {"bool": {"must": [{"term": {"rule_outcome": "Do not submit"}}, {"term": {"rules_name": "Has no PII"}}]}}}'
+
+# View sample excluded documents
+curl -X GET "localhost:9200/INDEX_NAME/_search?size=5" \
+  -H 'content-type: application/json' \
+  -d '{"query": {"term": {"rule_outcome": "Do not submit"}}, "_source": ["filename", "rule_outcome", "rules_name", "PII"]}'
+```
+
+### Important Considerations
+
+- **Run after PII detection:** Always run this script AFTER completing PII detection to ensure accurate classification
+- **One-time operation:** The script automatically skips documents that already have `rule_outcome` fields
+- **Performance impact:** Large datasets may require significant processing time; use appropriate rate limits
+- **Reversible:** You can remove the exclusion rules by deleting the `rule_outcome` and `rules_name` fields if needed
+- **Compliance:** Ensures only PII-containing documents consume RecordPoint storage and processing resources
+
 ## Troubleshooting
 
 ### Document Text Keyword Mapping Error
