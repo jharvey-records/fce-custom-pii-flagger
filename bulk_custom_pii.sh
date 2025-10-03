@@ -9,10 +9,11 @@ ES_URL="http://localhost:9200"
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--include-reverse] [--ner] <index_name> <yaml_directory>"
+    echo "Usage: $0 [--include-reverse] [--ner] [--validation-only] [index_name] <yaml_directory>"
     echo "  --include-reverse : Optional flag to also run reverse PII detection"
     echo "  --ner             : Optional flag to run NER extraction instead of PII detection"
-    echo "  index_name        : Elasticsearch index name to process"
+    echo "  --validation-only : Optional flag to only run validation checks and exit (no processing)"
+    echo "  index_name        : Elasticsearch index name to process (optional with --validation-only)"
     echo "  yaml_directory    : Directory containing YAML files for detection"
     echo ""
     echo "This script will:"
@@ -21,7 +22,17 @@ usage() {
     echo "3. If --include-reverse is specified, run reverse PII detection asynchronously for each YAML file"
     echo "4. Monitor task completion sequentially to avoid conflicts"
     echo ""
-    echo "Note: --include-reverse cannot be used with --ner flag"
+    echo "Validation-only mode:"
+    echo "  When --validation-only is specified, the script will:"
+    echo "  - Validate Elasticsearch painless regex setting"
+    echo "  - Validate index exists and has documents (if index_name provided)"
+    echo "  - Validate document_text keyword mapping (if index_name provided)"
+    echo "  - Validate all YAML files (syntax + regex patterns + Elasticsearch compatibility)"
+    echo "  - Exit with success/failure status without running any detection"
+    echo ""
+    echo "Notes:"
+    echo "  - --include-reverse cannot be used with --ner flag"
+    echo "  - For --validation-only, index_name is optional (omit to skip index validation)"
     exit 1
 }
 
@@ -123,17 +134,83 @@ validate_yaml_files() {
     local invalid_files=()
     
     for yaml_file in "${yaml_files[@]}"; do
-        log "Validating YAML syntax: $yaml_file"
+        log "Validating YAML syntax and regex patterns: $yaml_file"
         
-        # Use Python to validate YAML syntax
+        # Use Python to validate YAML syntax and regex patterns
         python3 -c "
 import yaml
 import sys
+import re
 
 try:
     with open(sys.argv[1], 'r') as f:
-        yaml.safe_load(f)
-    print('VALID')
+        config = yaml.safe_load(f)
+    
+    # Basic YAML syntax check passed
+    print('YAML syntax: VALID')
+    
+    # Validate regex patterns if present
+    if isinstance(config, dict) and 'patternRegex' in config:
+        pattern_regex = config['patternRegex']
+        
+        if not pattern_regex:
+            print('REGEX_ERROR: patternRegex field is empty', file=sys.stderr)
+            sys.exit(1)
+        
+        if not isinstance(pattern_regex, str):
+            print('REGEX_ERROR: patternRegex must be a string', file=sys.stderr)
+            sys.exit(1)
+        
+        # Check for Elasticsearch incompatible patterns
+        elasticsearch_issues = []
+        
+        # Check for case-insensitive flags (not supported in Elasticsearch regexp)
+        if '(?i:' in pattern_regex:
+            elasticsearch_issues.append('Contains (?i:...) case-insensitive flags - not supported in Elasticsearch regexp queries')
+        
+        # Check for double-escaped word boundaries
+        if '\\\\\\\\b' in pattern_regex:
+            elasticsearch_issues.append('Contains quadruple-escaped word boundaries (\\\\\\\\b) - should be \\\\b')
+        elif '\\\\\\\\B' in pattern_regex:
+            elasticsearch_issues.append('Contains quadruple-escaped non-word boundaries (\\\\\\\\B) - should be \\\\B')
+        
+        # Check for inconsistent word boundary escaping (mix of \\b and \\\\b in alternatives)
+        if '|' in pattern_regex:
+            alternatives = pattern_regex.split('|')
+            has_single_escaped = any('\\\\b' in alt and '\\\\\\\\b' not in alt for alt in alternatives)
+            has_double_escaped = any('\\\\\\\\b' in alt for alt in alternatives)
+            if has_single_escaped and has_double_escaped:
+                elasticsearch_issues.append('Inconsistent word boundary escaping - mix of \\\\b and \\\\\\\\b in alternatives')
+        
+        # Report Elasticsearch compatibility issues
+        if elasticsearch_issues:
+            print('ELASTICSEARCH_COMPATIBILITY_ERRORS:', file=sys.stderr)
+            for issue in elasticsearch_issues:
+                print(f'  - {issue}', file=sys.stderr)
+            sys.exit(1)
+        
+        # Test if the regex pattern is valid Python regex
+        try:
+            # For Python validation, we need to handle the YAML-escaped pattern
+            # Convert double-escaped patterns for Python testing
+            python_pattern = pattern_regex.replace('\\\\\\\\b', '\\\\b').replace('\\\\\\\\B', '\\\\B')
+            
+            # Remove Elasticsearch-specific flags for Python testing
+            python_pattern = re.sub(r'\\?\\?\(\?i:', '(?i:', python_pattern)
+            
+            # Test compilation
+            re.compile(python_pattern)
+            print('Regex pattern: VALID')
+            
+        except re.error as e:
+            print(f'REGEX_ERROR: Invalid regex pattern - {e}', file=sys.stderr)
+            sys.exit(1)
+        
+    else:
+        print('No patternRegex field found - skipping regex validation')
+    
+    print('VALIDATION_COMPLETE')
+    
 except yaml.YAMLError as e:
     print(f'YAML_ERROR: {e}', file=sys.stderr)
     sys.exit(1)
@@ -146,30 +223,50 @@ except Exception as e:
         local validation_output=$(cat /tmp/yaml_validation_output)
         
         if [[ $validation_exit_code -ne 0 ]]; then
-            log "ERROR: YAML validation failed for $yaml_file:"
+            log "ERROR: Validation failed for $yaml_file:"
             log "$validation_output"
             invalid_files+=("$yaml_file")
         else
-            log "YAML file is valid: $(basename "$yaml_file")"
+            log "File validation passed: $(basename "$yaml_file")"
+            # Show validation details
+            echo "$validation_output" | while read -r line; do
+                if [[ "$line" != "VALIDATION_COMPLETE" ]]; then
+                    log "  $line"
+                fi
+            done
         fi
     done
     
     if [[ ${#invalid_files[@]} -gt 0 ]]; then
-        log "FATAL: Found ${#invalid_files[@]} YAML files with syntax errors:"
+        log "FATAL: Found ${#invalid_files[@]} files with validation errors:"
         for invalid_file in "${invalid_files[@]}"; do
             log "  - $invalid_file"
         done
-        log "Please fix the YAML syntax errors before running bulk processing."
-        log "Common YAML issues:"
-        log "  - Unescaped quotes in double-quoted strings (use single quotes or escape backslashes)"
-        log "  - Missing quotes around special characters"
-        log "  - Incorrect indentation"
-        log "  - Missing colons after keys"
-        log "STOPPING EXECUTION DUE TO YAML VALIDATION FAILURES"
+        log "Please fix the validation errors before running bulk processing."
+        log ""
+        log "Common issues and fixes:"
+        log "  YAML SYNTAX ERRORS:"
+        log "    - Unescaped quotes in double-quoted strings (use single quotes or escape backslashes)"
+        log "    - Missing quotes around special characters"
+        log "    - Incorrect indentation"
+        log "    - Missing colons after keys"
+        log ""
+        log "  REGEX PATTERN ERRORS:"
+        log "    - Invalid regex syntax (check parentheses, brackets, escape sequences)"
+        log "    - Double-escaped word boundaries (\\\\\\\\b should be \\\\b)"
+        log "    - Case-insensitive flags (?i:...) not supported in Elasticsearch"
+        log "    - Inconsistent escaping across regex alternatives"
+        log ""
+        log "  ELASTICSEARCH COMPATIBILITY:"
+        log "    - Use simple patterns without (?i:...) flags"
+        log "    - Use consistent \\\\b escaping for word boundaries"
+        log "    - Test patterns with simple alternation (pattern1|pattern2)"
+        log ""
+        log "STOPPING EXECUTION DUE TO VALIDATION FAILURES"
         exit 1
     fi
     
-    log "All ${#yaml_files[@]} YAML files passed syntax validation"
+    log "All ${#yaml_files[@]} files passed validation (YAML syntax + regex patterns + Elasticsearch compatibility)"
 }
 
 # Function to run PII detection on all YAML files
@@ -378,6 +475,7 @@ main() {
     # Parse arguments
     local include_reverse="false"
     local ner_mode="false"
+    local validation_only="false"
     local index_name=""
     local yaml_dir=""
     
@@ -390,6 +488,10 @@ main() {
                 ;;
             --ner)
                 ner_mode="true"
+                shift
+                ;;
+            --validation-only)
+                validation_only="true"
                 shift
                 ;;
             *)
@@ -406,9 +508,21 @@ main() {
         esac
     done
     
+    # Handle case where only one argument is provided with --validation-only
+    if [[ "$validation_only" == "true" && -n "$index_name" && -z "$yaml_dir" ]]; then
+        # If validation-only mode and only one argument, treat it as yaml_dir
+        yaml_dir="$index_name"
+        index_name=""
+    fi
+    
     # Check required arguments
-    if [[ -z "$index_name" || -z "$yaml_dir" ]]; then
-        log "ERROR: Missing required arguments"
+    if [[ -z "$yaml_dir" ]]; then
+        log "ERROR: Missing required yaml_directory argument"
+        usage
+    fi
+    
+    if [[ "$validation_only" != "true" && -z "$index_name" ]]; then
+        log "ERROR: Missing required index_name argument"
         usage
     fi
     
@@ -418,25 +532,57 @@ main() {
         usage
     fi
     
-    if [[ "$ner_mode" == "true" ]]; then
-        log "Starting bulk NER extraction"
+    if [[ "$validation_only" == "true" ]]; then
+        log "Starting validation-only mode"
+        log "YAML directory: $yaml_dir"
+        if [[ -n "$index_name" && "$index_name" != "skip" ]]; then
+            log "Index validation: $index_name"
+        else
+            log "Index validation: SKIPPED"
+        fi
     else
-        log "Starting bulk custom PII detection"
+        if [[ "$ner_mode" == "true" ]]; then
+            log "Starting bulk NER extraction"
+        else
+            log "Starting bulk custom PII detection"
+        fi
+        log "Index: $index_name"
+        log "YAML directory: $yaml_dir"
+        log "Include reverse detection: $include_reverse"
+        log "NER mode: $ner_mode"
     fi
-    log "Index: $index_name"
-    log "YAML directory: $yaml_dir"
-    log "Include reverse detection: $include_reverse"
-    log "NER mode: $ner_mode"
     
     # Validate Elasticsearch configuration and inputs
     validate_painless_regex
-    validate_index "$index_name"
-    validate_keyword_mapping "$index_name"
+    
+    # Only validate index if index_name is provided and not 'skip'
+    if [[ -n "$index_name" && "$index_name" != "skip" ]]; then
+        validate_index "$index_name"
+        validate_keyword_mapping "$index_name"
+    fi
     
     # Validate YAML files before processing
     log "About to run YAML validation on directory: $yaml_dir"
     validate_yaml_files "$yaml_dir"
-    log "YAML validation completed successfully - proceeding with processing"
+    log "YAML validation completed successfully"
+    
+    # Exit early if validation-only mode
+    if [[ "$validation_only" == "true" ]]; then
+        log "Validation-only mode: All validation checks passed successfully"
+        log "Validation summary:"
+        log "  - Elasticsearch painless regex: ENABLED"
+        if [[ -n "$index_name" && "$index_name" != "skip" ]]; then
+            log "  - Index validation: PASSED"
+            log "  - Keyword mapping: VALID"
+        else
+            log "  - Index validation: SKIPPED"
+        fi
+        log "  - YAML files validation: ALL PASSED"
+        log "No processing performed (validation-only mode)"
+        exit 0
+    fi
+    
+    log "Proceeding with processing"
     
     # Run PII detection or NER extraction
     run_pii_detection "$index_name" "$yaml_dir" "$include_reverse" "$ner_mode"
