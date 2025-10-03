@@ -1,8 +1,37 @@
 # FCE custom PII flags
 
-This is a tool for identifying custom PII and setting flags in FCE. 
+This is a tool for identifying custom PII and setting flags in FCE.
 
 These custom flags will appear in RecordPoint metadata under the "Details" tab in the "FileConnect Enterprise" section.
+
+## Quick Reference
+
+**Common Commands:**
+```bash
+# Validate before processing (recommended)
+./bulk_custom_pii.sh --validation-only pii_yml
+
+# PII detection (boolean flags)
+python pii_detector.py <index> <config.yml>
+./bulk_custom_pii.sh <index> pii_yml
+
+# Named Entity Recognition (value extraction)
+python pii_detector.py --ner <index> <config.yml>
+./bulk_custom_pii.sh --ner <index> ner_yml
+
+# RecordPoint integration (exclude non-PII docs)
+./apply_rules_no_pii_documents.sh <index> --rate-limit=100
+
+# Continuous crawl with PII detection
+./continuous_crawl_pii.sh <index_prefix> pii_yml
+```
+
+**Key Features:**
+- **PII Detection**: Set boolean flags (`PII.{fieldName}: true/false`) for compliance
+- **Named Entity Recognition**: Extract actual values (`named_entities.{fieldName}: "value"`) for analytics
+- **Checksum Validation**: Reduce false positives with government validation algorithms
+- **Bulk Processing**: Process multiple YAML configs with pre-flight validation
+- **RecordPoint Control**: Submit only documents with detected PII
 
 ## Installation
 
@@ -62,12 +91,24 @@ Where config.yml is a yaml file that defines the flag name, regular expression, 
 For processing multiple YAML files against a single index:
 
 ```bash
+# Validate YAML files before processing (recommended first step)
+./bulk_custom_pii.sh --validation-only <yaml_directory>
+
 # Normal PII detection only (recommended for large datasets)
 ./bulk_custom_pii.sh <index_name> <yaml_directory>
 
 # Include reverse PII detection for complete coverage
 ./bulk_custom_pii.sh --include-reverse <index_name> <yaml_directory>
+
+# Named Entity Recognition (NER) - extract actual values
+./bulk_custom_pii.sh --ner <index_name> <yaml_directory>
 ```
+
+**Validation Features:**
+- **Pre-flight checks**: `--validation-only` validates YAML syntax, regex patterns, and Elasticsearch compatibility
+- **Index validation**: Checks index exists, has documents, and proper `document_text.keyword` mapping
+- **Elasticsearch checks**: Validates painless regex is enabled
+- **Prevents runtime failures**: Catches configuration errors before processing begins
 
 This script will automatically process all `.yml` files in the specified directory.
 
@@ -143,17 +184,27 @@ The `--force-resubmit` flag is used when you need to resubmit documents that hav
 
 ### Example YAML Configurations
 
-The `pii_yml/` directory contains ready-to-use configurations for common PII types:
+The project includes two types of configurations for different use cases:
+
+**PII Detection Configurations (`pii_yml/`)**
+These set boolean flags (true/false) in the `PII` field:
 
 - **`pii_medicare_with_checksum.yml`** - Australian Medicare numbers with checksum validation
-- **`pii_tfn_with_checksum.yml`** - Australian Tax File Numbers with checksum validation  
+- **`pii_tfn_with_checksum.yml`** - Australian Tax File Numbers with checksum validation
 - **`pii_passport.yml`** - Passport numbers (basic pattern matching)
 - **`pii_ssn.yml`** - US Social Security Numbers (basic pattern matching)
+- **`pii_date_of_birth.yml`** - Date of birth patterns with flexible formatting
 
-The `ner_yml/` directory contains Named Entity Recognition configurations:
+**Named Entity Recognition Configurations (`ner_yml/`)**
+These extract actual values and store them in the `named_entities` field:
 
 - **`ner_employee_id.yml`** - Employee ID extraction (alphanumeric patterns with letter prefixes)
 - **`ner_customer_id.yml`** - Customer ID/CIS Key extraction (8 or 11 digits)
+- **`ner_test_with_checksum.yml`** - Example NER with checksum validation
+
+**When to use each:**
+- Use **PII configs** for compliance flagging (e.g., "this document contains Medicare numbers")
+- Use **NER configs** for data extraction and analytics (e.g., "extract all employee IDs for reporting")
 
 You can use these as-is or modify them for your specific needs.
 
@@ -212,15 +263,19 @@ Building regex patterns involves the following steps:
 
 ### Flags
 
-The following flags are available:
+The following flags are available for `pii_detector.py`:
 
---dry-run: Reveals the elasticsearch query without executing it. Useful for troubleshooting.
+**`--dry-run`**: Reveals the elasticsearch query without executing it. Useful for troubleshooting and validating query structure.
 
---async: Useful for long running updates, as this can be used to do pii analysis in the background and shows progress (exit the process monitor with ctrl-c).
+**`--async`**: Runs update asynchronously without monitoring. Task runs in background, returns task ID immediately.
 
---search: Instead of updating matching documents with the PII flags, returns the documents themselves. Shows both processed and unprocessed documents that match PII patterns. Useful for verification and analysis.
+**`--monitor`**: Runs update asynchronously with real-time progress monitoring. Shows documents processed, batches completed, and allows Ctrl+C to stop monitoring while task continues.
 
---reverse: Appends "PII.{name}: false" to documents in the index that do NOT meet the yaml file criteria.
+**`--search`**: Instead of updating matching documents with the PII flags, returns the documents themselves. Shows both processed and unprocessed documents that match PII patterns. Useful for verification and analysis.
+
+**`--reverse`**: Appends "PII.{name}: false" to documents in the index that do NOT meet the yaml file criteria. Provides complete dataset classification.
+
+**`--ner`**: Named Entity Recognition mode. Extracts actual entity values instead of boolean flags. Stores values in `named_entities.{fieldName}` field. Cannot be combined with `--reverse`.
 
 ### Performance Considerations
 
@@ -313,8 +368,12 @@ checksum: weighted_mod_11
 
 ### Available Checksum Algorithms
 
-- **weighted_mod_11**: Australian Tax File Number validation
-- **repeating_weight_mod_10**: Australian Medicare number validation
+The `checksums/` directory contains Painless scripts for validation:
+
+- **`weighted_mod_11.painless`**: Australian Tax File Number validation
+- **`repeating_weight_mod_10.painless`**: Australian Medicare number validation
+- **`issn_mod_11.painless`**: ISSN (International Standard Serial Number) validation
+- **`template.painless`**: Template for creating new checksum algorithms
 
 ### How It Works
 
@@ -337,15 +396,39 @@ For example, with TFN validation enabled, the sequence "123 456 789" near "tax" 
 
 ### Adding New Checksum Algorithms
 
-Create a copy of the template file.
+To create a custom checksum validation algorithm:
 
-```bash
-cp checksums/template.painless checksums/{NEW_CHECKSUM_ALGORITHM}.painless
+1. **Create a new Painless script** from the template:
+   ```bash
+   cp checksums/template.painless checksums/{algorithm_name}.painless
+   ```
+
+2. **Edit the script** to implement your validation algorithm between the marked comment sections:
+   - Keep the template structure intact
+   - Implement validation logic that sets `passChecksum = true` for valid matches
+   - The script receives the match in the `match` variable
+   - Clean and format the match text as needed (e.g., remove spaces/dashes)
+
+3. **Test in Painless Lab**: Paste the content into [Painless Lab](https://www.elastic.co/docs/explore-analyze/scripting/painless-lab) to validate syntax and logic.
+
+4. **Reference in YAML**: Add `checksum: {algorithm_name}` to your configuration file.
+
+**Example checksum script structure:**
+```painless
+// Test setup code here (will be removed automatically)
+String match = "123456789";  // Example for testing
+
+// Anything on this line or above will be removed
+
+// Your validation algorithm here
+String cleanMatch = /[^0-9]/.matcher(match).replaceAll('');
+// ... checksum calculation logic ...
+boolean passChecksum = (calculatedChecksum == expectedChecksum);
+
+// Return statement goes here so you can validate if passChecksum is working in your lab
 ```
 
-Paste the content into a [painless lab](https://www.elastic.co/docs/explore-analyze/scripting/painless-lab).
-
-From here you can develop and test the new algorithm.
+The `pii_detector.py` script automatically strips test code when loading the algorithm.
 
 ## Named Entity Recognition (NER)
 
@@ -533,6 +616,15 @@ patternRegex: "([FLM][0-9]{6}|[EC][0-9]{5})"
 
 For customers using RecordPoint SaaS integration who want to ensure **only documents with detected PII are submitted** to RecordPoint, use the document submission control script.
 
+**Quick Start:**
+```bash
+# After running PII detection, mark non-PII documents for exclusion
+./apply_rules_no_pii_documents.sh <index_name>
+
+# With custom rate limiting for busy systems
+./apply_rules_no_pii_documents.sh <index_name> --rate-limit=100 --scroll-size=500
+```
+
 ### When to Use Document Submission Control
 
 **Primary Use Case:**
@@ -664,10 +756,46 @@ curl -X GET "localhost:9200/INDEX_NAME/_search?size=5" \
 
 ## Troubleshooting
 
-### Document Text Keyword Mapping Error
+### Pre-flight Validation
+
+Before processing, always validate your configuration:
+
+```bash
+# Validate YAML files and Elasticsearch settings
+./bulk_custom_pii.sh --validation-only pii_yml
+
+# Validate with index checks (optional)
+./bulk_custom_pii.sh --validation-only <index_name> pii_yml
+```
+
+This checks:
+- YAML syntax and structure
+- Regex pattern validity
+- Elasticsearch compatibility (case-insensitive flags, word boundaries)
+- Painless regex enabled
+- Index existence and document counts (if index provided)
+- `document_text.keyword` mapping
+
+### Common Issues
+
+**Document Text Keyword Mapping Error**
 
 If you see an error about `document_text.keyword` field not being found:
 
 1. Ensure `TEXT_KEYWORD_SIZE=32000` is uncommented in diskover container
 2. Redeploy FCE to apply the mapping changes
-3. The `document_text` field must be mapped with a keyword subfield for regex queries
+3. Run validation to verify: `./bulk_custom_pii.sh --validation-only <index_name> pii_yml`
+
+**YAML Validation Errors**
+
+Common regex pattern issues caught by validation:
+- `(?i:...)` case-insensitive flags (not supported in Elasticsearch regexp queries)
+- Inconsistent word boundary escaping (`\\b` vs `\\\\b`)
+- Empty or missing `patternRegex` field
+- Invalid YAML syntax (unescaped quotes, missing colons)
+
+**Painless Regex Not Enabled**
+
+Error: "Painless regex is not enabled"
+- Add `script.painless.regex.enabled=true` to all Elasticsearch containers
+- Temporary fix: `curl -X PUT "localhost:9200/_cluster/settings" -H 'Content-Type: application/json' -d '{"transient":{"script.painless.regex.enabled":true}}'`
