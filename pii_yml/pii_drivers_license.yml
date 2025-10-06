@@ -1,0 +1,10 @@
+fieldName: HasDriversLicense
+patternRegex: "[0-9]{8,10}|[0-9]{3}[ -][0-9]{3}[ -][0-9]{3}|[0-9]{1}[ -][0-9]{3}[ -][0-9]{3}[ -][0-9]{3}"
+contextWords:
+  - driver
+  - license
+  - licence
+  - vehicle
+  - "driver's license"
+  - "driver's licence"
+  - DL

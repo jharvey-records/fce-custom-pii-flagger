@@ -83,9 +83,13 @@ def build_complete_query(config: Dict[str, Any], field: str = "document_text", f
     
     # Add pattern regex query for normal mode (reverse mode excludes this)
     if not reverse:
+        # Wrap pattern in parentheses if it contains OR alternatives
+        # This ensures .* is applied to the entire group, not just first/last alternatives
+        wrapped_pattern = f"({pattern_regex})" if '|' in pattern_regex else pattern_regex
+
         pattern_query = {
             "regexp": {
-                f"{field}.keyword": f".*{pattern_regex}.*"
+                f"{field}.keyword": f".*{wrapped_pattern}.*"
             }
         }
         must_clauses.append(pattern_query)
@@ -104,9 +108,13 @@ def build_complete_query(config: Dict[str, Any], field: str = "document_text", f
     
     # For reverse mode, exclude documents that match the pattern
     if reverse:
+        # Wrap pattern in parentheses if it contains OR alternatives
+        # This ensures .* is applied to the entire group, not just first/last alternatives
+        wrapped_pattern = f"({pattern_regex})" if '|' in pattern_regex else pattern_regex
+
         pattern_query = {
             "regexp": {
-                f"{field}.keyword": f".*{pattern_regex}.*"
+                f"{field}.keyword": f".*{wrapped_pattern}.*"
             }
         }
         must_not_clauses.append(pattern_query)
