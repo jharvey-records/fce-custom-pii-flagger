@@ -315,8 +315,8 @@ run_pii_detection() {
         else
             log "Running normal PII detection..."
         fi
-        
-        local normal_output=$(python pii_detector.py $detection_flags "$index_name" "$yaml_file" 2>&1)
+
+        local normal_output=$(python3 pii_detector.py $detection_flags "$index_name" "$yaml_file" 2>&1)
         local normal_exit_code=$?
         
         # Check if the command failed before trying to extract task ID
@@ -357,7 +357,7 @@ run_pii_detection() {
         # Run reverse PII detection asynchronously only if --include-reverse flag is set and not in NER mode
         if [[ "$include_reverse" == "true" && "$ner_mode" != "true" ]]; then
             log "Running reverse PII detection..."
-            local reverse_output=$(python pii_detector.py --async --reverse "$index_name" "$yaml_file" 2>&1)
+            local reverse_output=$(python3 pii_detector.py --async --reverse "$index_name" "$yaml_file" 2>&1)
             local reverse_exit_code=$?
             
             # Check if the reverse command failed before trying to extract task ID

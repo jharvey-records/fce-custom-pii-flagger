@@ -424,11 +424,11 @@ def ensure_field_mapping(field_name: str, index: str, es_url: str = "http://loca
                 print(f"Field mapping for {field_prefix}.{field_name} already exists as {expected_type}")
                 return
         
-        # Create or update the mapping using the _mapping/_doc endpoint
-        mapping_endpoint = f"{es_url}/{index}/_mapping/_doc"
+        # Create or update the mapping using the _mapping endpoint (ES8 compatible)
+        mapping_endpoint = f"{es_url}/{index}/_mapping"
         field_prefix = "named_entities" if ner_mode else "PII"
         field_type = "text" if ner_mode else "boolean"
-        
+
         mapping_payload = {
             "properties": {
                 field_prefix: {
@@ -440,7 +440,7 @@ def ensure_field_mapping(field_name: str, index: str, es_url: str = "http://loca
                 }
             }
         }
-        
+
         put_response = requests.put(mapping_endpoint, json=mapping_payload, headers=headers)
         if put_response.status_code in [200, 201]:
             print(f"Successfully set {field_type} mapping for {field_prefix}.{field_name}")
