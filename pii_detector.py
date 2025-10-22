@@ -347,10 +347,52 @@ def monitor_task(task_id: str, es_url: str = "http://localhost:9200", poll_inter
         print(f"\n\nStopped monitoring task {task_id}. Task continues running in background.")
         print(f"You can check status manually at: {url}")
 
+def execute_count(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, reverse: bool = False, ner_mode: bool = False) -> None:
+    """
+    Execute a count query against Elasticsearch to get expected number of documents.
+    Uses the same query filters as update operation to ensure consistency.
+
+    Args:
+        config: Configuration dictionary from YAML
+        index: Elasticsearch index name
+        es_url: Elasticsearch URL
+        dry_run: If True, print query instead of executing
+        reverse: If True, count documents that don't match patterns
+        ner_mode: If True, use named_entities field instead of PII field
+    """
+    field_name = config.get('fieldName', 'HasPII')
+
+    query_payload = {
+        "query": build_complete_query(config, field_name=field_name, reverse=reverse, ner_mode=ner_mode)
+    }
+
+    if dry_run:
+        print("Generated Elasticsearch Count Query:")
+        print(json.dumps(query_payload, indent=2))
+        return
+
+    url = f"{es_url}/{index}/_count"
+    headers = {"Content-Type": "application/json"}
+
+    try:
+        response = requests.post(url, json=query_payload, headers=headers)
+        if response.status_code == 200:
+            result = response.json()
+            count = result.get('count', 0)
+            print(f"Count: {count}")
+        else:
+            print(f"Count query failed with status: {response.status_code}")
+            print(response.text)
+            sys.exit(1)
+
+    except requests.RequestException as e:
+        print(f"Error executing count query: {e}")
+        sys.exit(1)
+
 def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, reverse: bool = False, ner_mode: bool = False) -> None:
     """
     Execute a search query against Elasticsearch.
-    
+
     Args:
         config: Configuration dictionary from YAML
         index: Elasticsearch index name
@@ -360,28 +402,28 @@ def execute_search(config: Dict[str, Any], index: str, es_url: str = "http://loc
         ner_mode: If True, use named_entities field instead of PII field
     """
     field_name = config.get('fieldName', 'HasPII')
-    
+
     # Ensure correct field mapping for NER mode
     if not dry_run and ner_mode:
         ensure_field_mapping(field_name, index, es_url, ner_mode=ner_mode)
-    
+
     query_payload = {
         "query": build_complete_query(config, field_name=field_name, reverse=reverse, search_mode=True, ner_mode=ner_mode)
     }
-    
+
     if dry_run:
         print("Generated Elasticsearch Query:")
         print(json.dumps(query_payload, indent=2))
         return
-    
+
     url = f"{es_url}/{index}/_search?pretty=true"
     headers = {"Content-Type": "application/json"}
-    
+
     try:
         response = requests.post(url, json=query_payload, headers=headers)
         print(f"Search response status: {response.status_code}")
         print(response.text)
-            
+
     except requests.RequestException as e:
         print(f"Error executing search: {e}")
         sys.exit(1)
@@ -545,7 +587,7 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
     
     # Add async parameter if in async or monitor mode
     async_param = "&wait_for_completion=false" if (async_mode or monitor_mode) else ""
-    url = f"{es_url}/{index}/_update_by_query?pretty=true&conflicts=proceed{async_param}"
+    url = f"{es_url}/{index}/_update_by_query?pretty=true{async_param}"
     headers = {"Content-Type": "application/json"}
     
     try:
@@ -580,76 +622,87 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
 
 def main():
     """Main function."""
-    if len(sys.argv) < 3 or len(sys.argv) > 9:
-        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--reverse] [--ner] <index> <config.yml>")
+    if len(sys.argv) < 3 or len(sys.argv) > 10:
+        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--count] [--reverse] [--ner] <index> <config.yml>")
         print("  --dry-run: Preview query without executing")
         print("  --async:   Run asynchronously without monitoring")
         print("  --monitor: Run asynchronously with progress monitoring")
         print("  --search:  Execute search query instead of update")
+        print("  --count:   Get count of documents matching query")
         print("  --reverse: Set PII field to false for documents that don't match patterns")
         print("  --ner:     Extract named entities instead of boolean PII flags")
         sys.exit(1)
-    
+
     dry_run = False
     async_mode = False
     monitor_mode = False
     search_mode = False
+    count_mode = False
     reverse_mode = False
     ner_mode = False
     args = sys.argv[1:]
-    
+
     # Parse flags
     if "--dry-run" in args:
         dry_run = True
         args.remove("--dry-run")
-    
+
     if "--async" in args:
         async_mode = True
         args.remove("--async")
-    
+
     if "--monitor" in args:
         monitor_mode = True
         args.remove("--monitor")
-    
+
     if "--search" in args:
         search_mode = True
         args.remove("--search")
-    
+
+    if "--count" in args:
+        count_mode = True
+        args.remove("--count")
+
     if "--reverse" in args:
         reverse_mode = True
         args.remove("--reverse")
-    
+
     if "--ner" in args:
         ner_mode = True
         args.remove("--ner")
-    
+
     # Validate remaining arguments
     if len(args) != 2:
-        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--reverse] [--ner] <index> <config.yml>")
+        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--count] [--reverse] [--ner] <index> <config.yml>")
         print("  --dry-run: Preview query without executing")
         print("  --async:   Run asynchronously without monitoring")
         print("  --monitor: Run asynchronously with progress monitoring")
         print("  --search:  Execute search query instead of update")
+        print("  --count:   Get count of documents matching query")
         print("  --reverse: Set PII field to false for documents that don't match patterns")
         print("  --ner:     Extract named entities instead of boolean PII flags")
         sys.exit(1)
-    
+
     index = args[0]
     config_file = args[1]
-    
+
     # Don't allow incompatible flags
     if dry_run and (async_mode or monitor_mode):
         print("Error: Cannot use --dry-run with --async or --monitor flags")
         sys.exit(1)
-    
+
     if search_mode and (async_mode or monitor_mode):
         print("Error: Cannot use --search with --async or --monitor flags")
         sys.exit(1)
-    
+
+    if count_mode and (async_mode or monitor_mode):
+        print("Error: Cannot use --count with --async or --monitor flags")
+        sys.exit(1)
+
     if async_mode and monitor_mode:
         print("Error: Cannot use both --async and --monitor flags together")
         sys.exit(1)
-    
+
     if ner_mode and reverse_mode:
         print("Error: Cannot use --ner with --reverse flag")
         sys.exit(1)
@@ -679,8 +732,10 @@ def main():
     print(f"Checksum algorithm: {config.get('checksum', 'None')}")
     print(f"Reverse mode: {reverse_mode}")
     print(f"NER mode: {ner_mode}")
-    
-    if search_mode:
+
+    if count_mode:
+        execute_count(config, index, dry_run=dry_run, reverse=reverse_mode, ner_mode=ner_mode)
+    elif search_mode:
         execute_search(config, index, dry_run=dry_run, reverse=reverse_mode, ner_mode=ner_mode)
     else:
         execute_update(config, index, dry_run=dry_run, async_mode=async_mode, monitor_mode=monitor_mode, reverse=reverse_mode, ner_mode=ner_mode)

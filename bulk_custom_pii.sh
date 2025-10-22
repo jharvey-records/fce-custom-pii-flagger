@@ -50,10 +50,20 @@ check_jq() {
 }
 
 # Function to monitor Elasticsearch task completion
+get_task_result() {
+    local task_id="$1"
+
+    local task_response=$(curl -s --request GET \
+        --url "${ES_URL}/_tasks/${task_id}" \
+        --header 'accept: application/json')
+
+    echo "$task_response"
+}
+
 monitor_elasticsearch_task() {
     local task_id="$1"
     local description="$2"
-    
+
     log "Monitoring Elasticsearch task: $task_id ($description)"
     
     while true; do
@@ -302,56 +312,113 @@ run_pii_detection() {
     
     for yaml_file in "${yaml_files[@]}"; do
         log "Processing YAML file: $yaml_file"
-        
+
         # Build command flags
         local detection_flags="--async"
         if [[ "$ner_mode" == "true" ]]; then
             detection_flags="$detection_flags --ner"
         fi
-        
-        # Run normal detection asynchronously
-        if [[ "$ner_mode" == "true" ]]; then
-            log "Running NER extraction..."
-        else
-            log "Running normal PII detection..."
-        fi
 
-        local normal_output=$(python3 pii_detector.py $detection_flags "$index_name" "$yaml_file" 2>&1)
-        local normal_exit_code=$?
-        
-        # Check if the command failed before trying to extract task ID
-        if [[ $normal_exit_code -ne 0 ]]; then
-            if [[ "$ner_mode" == "true" ]]; then
-                log "ERROR: NER extraction command failed with exit code $normal_exit_code:"
-            else
-                log "ERROR: PII detection command failed with exit code $normal_exit_code:"
+        # Retry logic with count verification
+        local max_attempts=3
+        local attempt=1
+        local update_success=false
+
+        while [[ $attempt -le $max_attempts ]]; do
+            # Get expected count before update
+            log "Attempt $attempt/$max_attempts: Getting expected document count..."
+            local count_output=$(python3 pii_detector.py --count "$index_name" "$yaml_file" 2>&1)
+            local expected_count=$(echo "$count_output" | grep "Count:" | awk '{print $2}')
+
+            if [[ -z "$expected_count" || "$expected_count" == "0" ]]; then
+                log "No documents to process (expected count: ${expected_count:-0})"
+                update_success=true
+                break
             fi
-            log "$normal_output"
-            log "Skipping this YAML file and continuing with the next one..."
+
+            log "Expected to update $expected_count documents"
+
+            # Run normal detection asynchronously
+            if [[ "$ner_mode" == "true" ]]; then
+                log "Running NER extraction..."
+            else
+                log "Running normal PII detection..."
+            fi
+
+            local normal_output=$(python3 pii_detector.py $detection_flags "$index_name" "$yaml_file" 2>&1)
+            local normal_exit_code=$?
+
+            # Check if the command failed before trying to extract task ID
+            if [[ $normal_exit_code -ne 0 ]]; then
+                if [[ "$ner_mode" == "true" ]]; then
+                    log "ERROR: NER extraction command failed with exit code $normal_exit_code:"
+                else
+                    log "ERROR: PII detection command failed with exit code $normal_exit_code:"
+                fi
+                log "$normal_output"
+                ((attempt++))
+                if [[ $attempt -le $max_attempts ]]; then
+                    log "Retrying..."
+                    sleep 2
+                fi
+                continue
+            fi
+
+            local normal_task_id=$(extract_task_id "$normal_output")
+
+            if [[ -z "$normal_task_id" ]]; then
+                if [[ "$ner_mode" == "true" ]]; then
+                    log "ERROR: Failed to extract task ID from NER extraction output:"
+                else
+                    log "ERROR: Failed to extract task ID from normal PII detection output:"
+                fi
+                log "$normal_output"
+                ((attempt++))
+                if [[ $attempt -le $max_attempts ]]; then
+                    log "Retrying..."
+                    sleep 2
+                fi
+                continue
+            fi
+
+            if [[ "$ner_mode" == "true" ]]; then
+                log "NER extraction task started: $normal_task_id"
+                monitor_elasticsearch_task "$normal_task_id" "NER extraction for $(basename "$yaml_file")"
+            else
+                log "Normal PII detection task started: $normal_task_id"
+                monitor_elasticsearch_task "$normal_task_id" "Normal PII detection for $(basename "$yaml_file")"
+            fi
+
+            # Extract updated count from task result
+            local task_result=$(get_task_result "$normal_task_id")
+            local updated_count=$(echo "$task_result" | grep -oP '"updated"\s*:\s*\K\d+' | head -1)
+
+            if [[ -z "$updated_count" ]]; then
+                log "WARNING: Could not extract updated count from task result"
+                updated_count=0
+            fi
+
+            # Verify count matches expectation
+            if [[ "$updated_count" -ge "$expected_count" ]]; then
+                log "✓ Success: Updated $updated_count/$expected_count documents"
+                update_success=true
+                break
+            else
+                local remaining=$((expected_count - updated_count))
+                log "⚠ Mismatch: Updated $updated_count/$expected_count documents ($remaining remaining)"
+                ((attempt++))
+                if [[ $attempt -le $max_attempts ]]; then
+                    log "Retrying remaining documents..."
+                    sleep 2
+                fi
+            fi
+        done
+
+        # Check final result
+        if [[ "$update_success" != "true" ]]; then
+            log "✗ Failed: Could not process all documents after $max_attempts attempts"
             ((failed_count++))
             continue
-        fi
-        
-        local normal_task_id=$(extract_task_id "$normal_output")
-        
-        if [[ -z "$normal_task_id" ]]; then
-            if [[ "$ner_mode" == "true" ]]; then
-                log "ERROR: Failed to extract task ID from NER extraction output:"
-            else
-                log "ERROR: Failed to extract task ID from normal PII detection output:"
-            fi
-            log "$normal_output"
-            log "Skipping this YAML file and continuing with the next one..."
-            ((failed_count++))
-            continue
-        fi
-        
-        if [[ "$ner_mode" == "true" ]]; then
-            log "NER extraction task started: $normal_task_id"
-            monitor_elasticsearch_task "$normal_task_id" "NER extraction for $(basename "$yaml_file")"
-        else
-            log "Normal PII detection task started: $normal_task_id"
-            monitor_elasticsearch_task "$normal_task_id" "Normal PII detection for $(basename "$yaml_file")"
         fi
         
         # Run reverse PII detection asynchronously only if --include-reverse flag is set and not in NER mode
