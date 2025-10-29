@@ -15,6 +15,10 @@ These custom flags will appear in RecordPoint metadata under the "Details" tab i
 python pii_detector.py <index> <config.yml>
 ./bulk_custom_pii.sh <index> pii_yml
 
+# PII detection with custom proximity distance
+python pii_detector.py --proximity-chars=100 <index> <config.yml>
+./bulk_custom_pii.sh --proximity-chars=100 <index> pii_yml
+
 # Named Entity Recognition (value extraction)
 python pii_detector.py --ner <index> <config.yml>
 ./bulk_custom_pii.sh --ner <index> ner_yml
@@ -113,6 +117,13 @@ For processing multiple YAML files against a single index:
 
 # Named Entity Recognition (NER) - extract actual values
 ./bulk_custom_pii.sh --ner <index_name> <yaml_directory>
+
+# Custom proximity distance for context words
+./bulk_custom_pii.sh --proximity-chars=100 <index_name> <yaml_directory>
+
+# Combine flags for precise control
+./bulk_custom_pii.sh --proximity-chars=75 --include-reverse <index_name> <yaml_directory>
+./bulk_custom_pii.sh --proximity-chars=25 --ner <index_name> <yaml_directory>
 ```
 
 **Validation Features:**
@@ -256,7 +267,7 @@ contextWords:
 - `2953-82736-4` (dashes)
 - `2953827364` (mixed formats)
 
-**contextWords** requires at least one of these words to appear within 50 characters of the pattern to prevent false positives.
+**contextWords** requires at least one of these words to appear within 50 characters of the pattern to prevent false positives. You can customize this proximity distance using the `--proximity-chars` flag (see [Proximity Configuration](#proximity-configuration) below).
 
 ### Creating Pattern Regex
 
@@ -287,6 +298,67 @@ The following flags are available for `pii_detector.py`:
 **`--reverse`**: Appends "PII.{name}: false" to documents in the index that do NOT meet the yaml file criteria. Provides complete dataset classification.
 
 **`--ner`**: Named Entity Recognition mode. Extracts actual entity values instead of boolean flags. Stores values in `named_entities.{fieldName}` field. Cannot be combined with `--reverse`.
+
+**`--proximity-chars=N`**: Sets the maximum character distance between context words and patterns (default: 50). See [Proximity Configuration](#proximity-configuration) for details.
+
+### Proximity Configuration
+
+The proximity distance controls how far context words can be from PII patterns while still being considered a match. This helps balance between false positives (too lenient) and missed detections (too strict).
+
+**Default Behavior:**
+- Default proximity distance: **50 characters**
+- Context words must appear within this distance of the pattern
+- Distance is measured in characters, not words
+
+**Customizing Proximity:**
+
+```bash
+# Stricter matching (reduce false positives)
+python pii_detector.py --proximity-chars=25 <index> <config.yml>
+./bulk_custom_pii.sh --proximity-chars=25 <index> pii_yml
+
+# More lenient matching (reduce false negatives)
+python pii_detector.py --proximity-chars=100 <index> <config.yml>
+./bulk_custom_pii.sh --proximity-chars=100 <index> pii_yml
+
+# Works with all modes
+python pii_detector.py --proximity-chars=75 --ner <index> ner_yml/ner_employee_id.yml
+./bulk_custom_pii.sh --proximity-chars=75 --include-reverse <index> pii_yml
+```
+
+**When to Adjust Proximity:**
+
+| Proximity Value | Use Case | Trade-offs |
+|-----------------|----------|------------|
+| **10-25 chars** | Highly structured documents with predictable formatting | Fewer false positives, may miss valid PII in verbose text |
+| **50 chars (default)** | Most general-purpose use cases | Balanced accuracy for typical documents |
+| **75-100 chars** | Documents with verbose descriptions or complex layouts | More comprehensive detection, slightly higher false positive rate |
+| **100+ chars** | Very loose text structure or when context appears far from patterns | Maximum coverage, increased risk of false positives |
+
+**Examples:**
+
+**Tight proximity (25 chars)** - Good for structured forms:
+```
+Medicare Number: 2953 82736 4    ✓ Matches (13 chars between "Medicare" and pattern)
+```
+
+**Default proximity (50 chars)** - Good for most documents:
+```
+Please provide your Medicare number 2953 82736 4    ✓ Matches (35 chars)
+```
+
+**Loose proximity (100 chars)** - Good for verbose text:
+```
+For billing purposes, please ensure your current Medicare
+benefits card details are up to date: 2953 82736 4           ✓ Matches (78 chars)
+```
+
+**Configuration Guidelines:**
+- Start with the default (50) and adjust based on results
+- Use `--search` flag to preview matches before updating
+- Test with `--dry-run` to understand query structure
+- Monitor false positive rates and adjust accordingly
+- Can be set per-detection-run for different document types
 
 ### Performance Considerations
 

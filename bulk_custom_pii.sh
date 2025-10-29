@@ -9,12 +9,13 @@ ES_URL="http://localhost:9200"
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 [--include-reverse] [--ner] [--validation-only] [index_name] <yaml_directory>"
-    echo "  --include-reverse : Optional flag to also run reverse PII detection"
-    echo "  --ner             : Optional flag to run NER extraction instead of PII detection"
-    echo "  --validation-only : Optional flag to only run validation checks and exit (no processing)"
-    echo "  index_name        : Elasticsearch index name to process (optional with --validation-only)"
-    echo "  yaml_directory    : Directory containing YAML files for detection"
+    echo "Usage: $0 [--include-reverse] [--ner] [--validation-only] [--proximity-chars=N] [index_name] <yaml_directory>"
+    echo "  --include-reverse  : Optional flag to also run reverse PII detection"
+    echo "  --ner              : Optional flag to run NER extraction instead of PII detection"
+    echo "  --validation-only  : Optional flag to only run validation checks and exit (no processing)"
+    echo "  --proximity-chars=N: Optional proximity distance between context words and patterns (default: 50)"
+    echo "  index_name         : Elasticsearch index name to process (optional with --validation-only)"
+    echo "  yaml_directory     : Directory containing YAML files for detection"
     echo ""
     echo "This script will:"
     echo "1. Find all YAML files in the specified directory"
@@ -285,6 +286,7 @@ run_pii_detection() {
     local yaml_dir="$2"
     local include_reverse="$3"
     local ner_mode="$4"
+    local proximity_chars="$5"
     
     if [[ "$ner_mode" == "true" ]]; then
         log "Running NER extraction on index: $index_name using YAML files from: $yaml_dir"
@@ -317,6 +319,9 @@ run_pii_detection() {
         local detection_flags="--async"
         if [[ "$ner_mode" == "true" ]]; then
             detection_flags="$detection_flags --ner"
+        fi
+        if [[ -n "$proximity_chars" ]]; then
+            detection_flags="$detection_flags --proximity-chars=$proximity_chars"
         fi
 
         # Retry logic with count verification
@@ -424,7 +429,11 @@ run_pii_detection() {
         # Run reverse PII detection asynchronously only if --include-reverse flag is set and not in NER mode
         if [[ "$include_reverse" == "true" && "$ner_mode" != "true" ]]; then
             log "Running reverse PII detection..."
-            local reverse_output=$(python3 pii_detector.py --async --reverse "$index_name" "$yaml_file" 2>&1)
+            local reverse_flags="--async --reverse"
+            if [[ -n "$proximity_chars" ]]; then
+                reverse_flags="$reverse_flags --proximity-chars=$proximity_chars"
+            fi
+            local reverse_output=$(python3 pii_detector.py $reverse_flags "$index_name" "$yaml_file" 2>&1)
             local reverse_exit_code=$?
             
             # Check if the reverse command failed before trying to extract task ID
@@ -543,9 +552,10 @@ main() {
     local include_reverse="false"
     local ner_mode="false"
     local validation_only="false"
+    local proximity_chars=""
     local index_name=""
     local yaml_dir=""
-    
+
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
@@ -559,6 +569,15 @@ main() {
                 ;;
             --validation-only)
                 validation_only="true"
+                shift
+                ;;
+            --proximity-chars=*)
+                proximity_chars="${1#*=}"
+                # Validate that proximity_chars is a positive integer
+                if ! [[ "$proximity_chars" =~ ^[0-9]+$ ]] || [[ "$proximity_chars" -lt 1 ]]; then
+                    log "ERROR: --proximity-chars must be a positive integer"
+                    usage
+                fi
                 shift
                 ;;
             *)
@@ -650,9 +669,9 @@ main() {
     fi
     
     log "Proceeding with processing"
-    
+
     # Run PII detection or NER extraction
-    run_pii_detection "$index_name" "$yaml_dir" "$include_reverse" "$ner_mode"
+    run_pii_detection "$index_name" "$yaml_dir" "$include_reverse" "$ner_mode" "$proximity_chars"
     
     if [[ "$ner_mode" == "true" ]]; then
         log "Bulk NER extraction completed successfully"
