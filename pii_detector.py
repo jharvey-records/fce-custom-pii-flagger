@@ -204,36 +204,38 @@ def trim_test_lines(script_content: str) -> str:
     
     return '\n'.join(core_lines)
 
-def build_checksum_regex(pattern_regex: str, context_words: List[str]) -> str:
+def build_checksum_regex(pattern_regex: str, context_words: List[str], proximity_chars: int = 50) -> str:
     """
     Build regex pattern for checksum validation.
-    
+
     Args:
         pattern_regex: Single regex pattern (e.g., "[0-9]{3}[\\s\\-]?[0-9]{3}[\\s\\-]?[0-9]{3}")
         context_words: List of context words
-    
+        proximity_chars: Maximum character distance between context words and patterns (default: 50)
+
     Returns:
         Regex pattern string
     """
     # Join context words with pipe for OR logic
     context_regex = "|".join(context_words) if context_words else ".*"
-    
+
     # Escape slashes in pattern for Painless regex
     escaped_pattern = pattern_regex.replace('/', '\\/')
-    
-    # Build complete regex - use capturing groups instead of lookbehind
-    # This finds context words followed by the pattern within reasonable distance
-    return f"(?i)({context_regex})[\\s\\S]{{0,50}}?({escaped_pattern})"
 
-def build_update_query(config: Dict[str, Any], reverse: bool = False, ner_mode: bool = False) -> Dict[str, Any]:
+    # Build complete regex - use capturing groups instead of lookbehind
+    # This finds context words followed by the pattern within specified distance
+    return f"(?i)({context_regex})[\\s\\S]{{0,{proximity_chars}}}?({escaped_pattern})"
+
+def build_update_query(config: Dict[str, Any], reverse: bool = False, ner_mode: bool = False, proximity_chars: int = 50) -> Dict[str, Any]:
     """
     Build the complete update_by_query request using proximity regex in scripts.
-    
+
     Args:
         config: Configuration dictionary from YAML
         reverse: If True, generate reverse mode query (set field to false)
         ner_mode: If True, extract actual regex matches instead of boolean values
-    
+        proximity_chars: Maximum character distance between context words and patterns (default: 50)
+
     Returns:
         Complete update_by_query payload
     """
@@ -241,7 +243,7 @@ def build_update_query(config: Dict[str, Any], reverse: bool = False, ner_mode: 
     checksum_algorithm = config.get('checksum')
     pattern_regex = config.get('patternRegex', '')
     context_words = config.get('contextWords', [])
-    
+
     if reverse:
         # Reverse mode: always set field to false, no checksum validation needed
         field_prefix = "named_entities" if ner_mode else "PII"
@@ -255,16 +257,16 @@ def build_update_query(config: Dict[str, Any], reverse: bool = False, ner_mode: 
     elif checksum_algorithm:
         # Build checksum-enabled script with proximity regex
         checksum_script = load_checksum_algorithm(checksum_algorithm)
-        regex_pattern = build_checksum_regex(pattern_regex, context_words)
+        regex_pattern = build_checksum_regex(pattern_regex, context_words, proximity_chars)
         field_prefix = "named_entities" if ner_mode else "PII"
-        
+
         if ner_mode:
             # NER mode: extract first valid match that passes checksum
             script_source = f"boolean passChecksum = false; String firstMatch = null; Pattern pattern = /{regex_pattern}/; Matcher matcher = pattern.matcher(ctx._source.document_text); while (matcher.find()) {{ String rawMatch = matcher.group(2); String cleanMatch = /[^0-9]/.matcher(rawMatch).replaceAll(''); {checksum_script} if (passChecksum == true) {{ firstMatch = rawMatch; break; }} }} if (ctx._source.{field_prefix} == null) {{ ctx._source.{field_prefix} = new HashMap(); }} if (firstMatch != null) {{ ctx._source.{field_prefix}.put('{field_name}', firstMatch); }}"
         else:
             # PII mode: boolean result if any match passes checksum
             script_source = f"boolean passChecksum = false; Pattern pattern = /{regex_pattern}/; Matcher matcher = pattern.matcher(ctx._source.document_text); while (matcher.find()) {{ String rawMatch = matcher.group(2); String cleanMatch = /[^0-9]/.matcher(rawMatch).replaceAll(''); {checksum_script} if (passChecksum == true) {{ break; }} }} if (ctx._source.{field_prefix} == null) {{ ctx._source.{field_prefix} = new HashMap(); }} ctx._source.{field_prefix}.put('{field_name}', passChecksum);"
-        
+
         return {
             "script": {
                 "source": script_source,
@@ -274,16 +276,16 @@ def build_update_query(config: Dict[str, Any], reverse: bool = False, ner_mode: 
         }
     else:
         # Build proximity regex for non-checksum detection
-        regex_pattern = build_checksum_regex(pattern_regex, context_words)
+        regex_pattern = build_checksum_regex(pattern_regex, context_words, proximity_chars)
         field_prefix = "named_entities" if ner_mode else "PII"
-        
+
         if ner_mode:
             # NER mode: extract first match without checksum validation
             script_source = f"String firstMatch = null; Pattern pattern = /{regex_pattern}/; Matcher matcher = pattern.matcher(ctx._source.document_text); if (matcher.find()) {{ firstMatch = matcher.group(2); }} if (ctx._source.{field_prefix} == null) {{ ctx._source.{field_prefix} = new HashMap(); }} if (firstMatch != null) {{ ctx._source.{field_prefix}.put('{field_name}', firstMatch); }}"
         else:
             # PII mode: boolean result if any match found
             script_source = f"boolean foundMatch = false; Pattern pattern = /{regex_pattern}/; Matcher matcher = pattern.matcher(ctx._source.document_text); if (matcher.find()) {{ foundMatch = true; }} if (ctx._source.{field_prefix} == null) {{ ctx._source.{field_prefix} = new HashMap(); }} ctx._source.{field_prefix}.put('{field_name}', foundMatch);"
-        
+
         return {
             "script": {
                 "source": script_source,
@@ -541,10 +543,10 @@ def validate_keyword_mapping(index: str, es_url: str = "http://localhost:9200") 
         print(f"Error checking index mapping: {e}")
         return False
 
-def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, async_mode: bool = False, monitor_mode: bool = False, reverse: bool = False, ner_mode: bool = False) -> None:
+def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://localhost:9200", dry_run: bool = False, async_mode: bool = False, monitor_mode: bool = False, reverse: bool = False, ner_mode: bool = False, proximity_chars: int = 50) -> None:
     """
     Execute the update_by_query against Elasticsearch with keyword mapping validation.
-    
+
     Args:
         config: Configuration dictionary from YAML
         index: Elasticsearch index name
@@ -554,9 +556,10 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
         monitor_mode: If True, run asynchronously with progress monitoring
         reverse: If True, update documents that don't match patterns with false
         ner_mode: If True, extract named entities instead of boolean PII flags
+        proximity_chars: Maximum character distance between context words and patterns (default: 50)
     """
     field_name = config.get('fieldName', 'HasPII')
-    
+
     # Validate keyword mapping before proceeding
     if not dry_run:
         if not validate_keyword_mapping(index, es_url):
@@ -573,12 +576,12 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
             print('      "ignore_above": 32000')
             print('    }')
             print('  }')
-            print('}') 
+            print('}')
             sys.exit(1)
-        
+
         ensure_field_mapping(field_name, index, es_url, ner_mode=ner_mode)
-    
-    update_payload = build_update_query(config, reverse=reverse, ner_mode=ner_mode)
+
+    update_payload = build_update_query(config, reverse=reverse, ner_mode=ner_mode, proximity_chars=proximity_chars)
     
     if dry_run:
         print("Generated Elasticsearch Query:")
@@ -622,15 +625,16 @@ def execute_update(config: Dict[str, Any], index: str, es_url: str = "http://loc
 
 def main():
     """Main function."""
-    if len(sys.argv) < 3 or len(sys.argv) > 10:
-        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--count] [--reverse] [--ner] <index> <config.yml>")
-        print("  --dry-run: Preview query without executing")
-        print("  --async:   Run asynchronously without monitoring")
-        print("  --monitor: Run asynchronously with progress monitoring")
-        print("  --search:  Execute search query instead of update")
-        print("  --count:   Get count of documents matching query")
-        print("  --reverse: Set PII field to false for documents that don't match patterns")
-        print("  --ner:     Extract named entities instead of boolean PII flags")
+    if len(sys.argv) < 3 or len(sys.argv) > 11:
+        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--count] [--reverse] [--ner] [--proximity-chars=N] <index> <config.yml>")
+        print("  --dry-run:          Preview query without executing")
+        print("  --async:            Run asynchronously without monitoring")
+        print("  --monitor:          Run asynchronously with progress monitoring")
+        print("  --search:           Execute search query instead of update")
+        print("  --count:            Get count of documents matching query")
+        print("  --reverse:          Set PII field to false for documents that don't match patterns")
+        print("  --ner:              Extract named entities instead of boolean PII flags")
+        print("  --proximity-chars=N: Maximum character distance between context words and patterns (default: 50)")
         sys.exit(1)
 
     dry_run = False
@@ -640,6 +644,7 @@ def main():
     count_mode = False
     reverse_mode = False
     ner_mode = False
+    proximity_chars = 50  # Default value
     args = sys.argv[1:]
 
     # Parse flags
@@ -671,16 +676,35 @@ def main():
         ner_mode = True
         args.remove("--ner")
 
+    # Parse --proximity-chars flag
+    proximity_flag = None
+    for arg in args:
+        if arg.startswith("--proximity-chars="):
+            proximity_flag = arg
+            break
+
+    if proximity_flag:
+        try:
+            proximity_chars = int(proximity_flag.split("=")[1])
+            if proximity_chars < 1:
+                print("Error: --proximity-chars must be a positive integer")
+                sys.exit(1)
+            args.remove(proximity_flag)
+        except (ValueError, IndexError):
+            print("Error: --proximity-chars must be specified as --proximity-chars=N where N is a positive integer")
+            sys.exit(1)
+
     # Validate remaining arguments
     if len(args) != 2:
-        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--count] [--reverse] [--ner] <index> <config.yml>")
-        print("  --dry-run: Preview query without executing")
-        print("  --async:   Run asynchronously without monitoring")
-        print("  --monitor: Run asynchronously with progress monitoring")
-        print("  --search:  Execute search query instead of update")
-        print("  --count:   Get count of documents matching query")
-        print("  --reverse: Set PII field to false for documents that don't match patterns")
-        print("  --ner:     Extract named entities instead of boolean PII flags")
+        print("Usage: python pii_detector.py [--dry-run] [--async] [--monitor] [--search] [--count] [--reverse] [--ner] [--proximity-chars=N] <index> <config.yml>")
+        print("  --dry-run:          Preview query without executing")
+        print("  --async:            Run asynchronously without monitoring")
+        print("  --monitor:          Run asynchronously with progress monitoring")
+        print("  --search:           Execute search query instead of update")
+        print("  --count:            Get count of documents matching query")
+        print("  --reverse:          Set PII field to false for documents that don't match patterns")
+        print("  --ner:              Extract named entities instead of boolean PII flags")
+        print("  --proximity-chars=N: Maximum character distance between context words and patterns (default: 50)")
         sys.exit(1)
 
     index = args[0]
@@ -730,6 +754,7 @@ def main():
     print(f"Pattern regex: {config['patternRegex']}")
     print(f"Context words: {config.get('contextWords', 'None')}")
     print(f"Checksum algorithm: {config.get('checksum', 'None')}")
+    print(f"Proximity characters: {proximity_chars}")
     print(f"Reverse mode: {reverse_mode}")
     print(f"NER mode: {ner_mode}")
 
@@ -738,7 +763,7 @@ def main():
     elif search_mode:
         execute_search(config, index, dry_run=dry_run, reverse=reverse_mode, ner_mode=ner_mode)
     else:
-        execute_update(config, index, dry_run=dry_run, async_mode=async_mode, monitor_mode=monitor_mode, reverse=reverse_mode, ner_mode=ner_mode)
+        execute_update(config, index, dry_run=dry_run, async_mode=async_mode, monitor_mode=monitor_mode, reverse=reverse_mode, ner_mode=ner_mode, proximity_chars=proximity_chars)
 
 if __name__ == "__main__":
     main()
