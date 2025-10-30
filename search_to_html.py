@@ -59,16 +59,16 @@ def highlight_document_text_html(text, pattern_regex, context_words, proximity_c
         highlighted_ranges.append((start, end, 'pattern', matched_text))
 
     # Add context words (green for near, red for far)
+    # Match Elasticsearch Painless logic: context word must appear BEFORE pattern
     for start, end, matched_text in context_matches:
         is_near = False
         for pattern_start, pattern_end, _ in pattern_matches:
+            # Only check if context word comes before the pattern
             if start < pattern_start:
                 distance = pattern_start - end
-            else:
-                distance = start - pattern_end
-            if distance <= proximity_chars:
-                is_near = True
-                break
+                if distance <= proximity_chars:
+                    is_near = True
+                    break
 
         highlight_type = 'near' if is_near else 'far'
         highlighted_ranges.append((start, end, highlight_type, matched_text))
