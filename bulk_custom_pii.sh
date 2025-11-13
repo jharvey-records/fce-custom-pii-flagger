@@ -89,8 +89,23 @@ monitor_elasticsearch_task() {
                 # Extract final results
                 local total=$(echo "$json_response" | jq -r '.response.total // 0' 2>/dev/null || echo "0")
                 local updated=$(echo "$json_response" | jq -r '.response.updated // 0' 2>/dev/null || echo "0")
-                log "Task completed successfully: $task_id ($description) - Total: $total, Updated: $updated"
-                break
+
+                # FIX: If task reports completed but with total=0 and updated=0, it hasn't actually started yet
+                # This can happen with slow checksum scripts or when Elasticsearch is under load
+                # Don't exit monitoring - wait for the task to actually start processing
+                if [[ "$total" == "0" && "$updated" == "0" ]]; then
+                    log "[FIX] Task reports completed but total=0, updated=0 - task hasn't started yet, continuing to monitor..."
+                    # Don't break - keep monitoring
+                else
+                    log "Task completed successfully: $task_id ($description) - Total: $total, Updated: $updated"
+
+                    # DIAGNOSTIC: Log full response when updated=0 but total>0 (partial failure)
+                    if [[ "$updated" == "0" && "$total" != "0" ]]; then
+                        log "[DIAGNOSTIC] ⚠️  Task completed with updated=0 but total=$total!"
+                        log "[DIAGNOSTIC] Full task response (first 1000 chars): ${json_response:0:1000}"
+                    fi
+                    break
+                fi
             fi
             
             # Extract and display progress information if available
@@ -330,8 +345,69 @@ run_pii_detection() {
         local update_success=false
 
         while [[ $attempt -le $max_attempts ]]; do
+            # FIX: Wait for previous task to complete before launching retry
+            if [[ $attempt -gt 1 && -n "$normal_task_id" ]]; then
+                log "[FIX] Checking if previous task $normal_task_id still exists before retry..."
+                local max_wait_attempts=30  # Wait up to 60 seconds (30 * 2s)
+                local wait_attempt=0
+                local prev_task_exists=true
+
+                while [[ $wait_attempt -lt $max_wait_attempts && "$prev_task_exists" == "true" ]]; do
+                    local prev_task_response=$(curl -s -w "%{http_code}" --request GET \
+                        --url "${ES_URL}/_tasks/${normal_task_id}" \
+                        --header 'accept: application/json' 2>/dev/null || echo "curl_failed")
+                    local prev_http_code="${prev_task_response: -3}"
+                    local prev_json_response="${prev_task_response%???}"
+
+                    if [[ "$prev_http_code" == "200" ]]; then
+                        # Task exists in API, but check if it's actually completed
+                        local prev_completed=$(echo "$prev_json_response" | jq -r '.completed // false' 2>/dev/null || echo "false")
+
+                        if [[ "$prev_completed" == "true" ]]; then
+                            log "[FIX] ✓ Previous task $normal_task_id has completed (still in API cache)"
+
+                            # Wait for Elasticsearch to fully commit and refresh changes
+                            log "[FIX] Waiting for Elasticsearch to commit changes (checking index refresh)..."
+                            local refresh_wait=0
+                            local max_refresh_wait=10  # Wait up to 20 seconds (10 * 2s)
+
+                            while [[ $refresh_wait -lt $max_refresh_wait ]]; do
+                                sleep 2
+                                ((refresh_wait++))
+
+                                # Force index refresh to make changes visible
+                                curl -s -X POST "${ES_URL}/${index_name}/_refresh" > /dev/null 2>&1
+
+                                # Check if we're past the minimum wait time (at least 5 seconds)
+                                if [[ $refresh_wait -ge 3 ]]; then
+                                    break
+                                fi
+                            done
+
+                            log "[FIX] Index refreshed after $((refresh_wait * 2)) seconds"
+                            prev_task_exists=false
+                        else
+                            log "[FIX] Previous task $normal_task_id still running, waiting... (attempt $((wait_attempt+1))/$max_wait_attempts)"
+                            sleep 2
+                            ((wait_attempt++))
+                        fi
+                    elif [[ "$prev_http_code" == "404" ]]; then
+                        log "[FIX] ✓ Previous task $normal_task_id completed and cleaned up"
+                        prev_task_exists=false
+                    else
+                        log "[FIX] Could not check previous task (HTTP: $prev_http_code), assuming it completed"
+                        prev_task_exists=false
+                    fi
+                done
+
+                if [[ $wait_attempt -ge $max_wait_attempts ]]; then
+                    log "[FIX] ⚠️  Previous task still exists after ${max_wait_attempts} attempts, proceeding anyway"
+                fi
+            fi
+
             # Get expected count before update
             log "Attempt $attempt/$max_attempts: Getting expected document count..."
+            log "[DIAGNOSTIC] Timestamp: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
             local count_output=$(python3 pii_detector.py --count "$index_name" "$yaml_file" 2>&1)
             local expected_count=$(echo "$count_output" | grep "Count:" | awk '{print $2}')
 
@@ -388,19 +464,27 @@ run_pii_detection() {
 
             if [[ "$ner_mode" == "true" ]]; then
                 log "NER extraction task started: $normal_task_id"
+                log "[DIAGNOSTIC] Task launch timestamp: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
                 monitor_elasticsearch_task "$normal_task_id" "NER extraction for $(basename "$yaml_file")"
             else
                 log "Normal PII detection task started: $normal_task_id"
+                log "[DIAGNOSTIC] Task launch timestamp: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
                 monitor_elasticsearch_task "$normal_task_id" "Normal PII detection for $(basename "$yaml_file")"
             fi
 
+            log "[DIAGNOSTIC] Monitoring completed, timestamp: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
+
             # Extract updated count from task result
+            log "[DIAGNOSTIC] Attempting to extract task result from $normal_task_id..."
             local task_result=$(get_task_result "$normal_task_id")
             local updated_count=$(echo "$task_result" | grep -oP '"updated"\s*:\s*\K\d+' | head -1)
 
             if [[ -z "$updated_count" ]]; then
                 log "WARNING: Could not extract updated count from task result"
+                log "[DIAGNOSTIC] Task result was: ${task_result:0:500}"
                 updated_count=0
+            else
+                log "[DIAGNOSTIC] Successfully extracted updated_count=$updated_count"
             fi
 
             # Verify count matches expectation
@@ -461,6 +545,12 @@ run_pii_detection() {
         
         log "Completed processing: $yaml_file"
         ((processed_count++))
+
+        # FIX: Wait for Elasticsearch to commit changes before processing next YAML file
+        # This prevents version conflicts when processing multiple files sequentially
+        log "[FIX] Refreshing index and waiting for changes to commit before next file..."
+        curl -s -X POST "${ES_URL}/${index_name}/_refresh" > /dev/null 2>&1
+        sleep 3
     done
     
     log "Processing summary:"
@@ -535,7 +625,8 @@ validate_index() {
     fi
     
     # Check if index has documents with document_text
-    local doc_count=$(curl -s "${ES_URL}/${index_name}/_search?q=document_text:*&size=0" | jq -r '.hits.total' 2>/dev/null || echo "0")
+    # Elasticsearch 8 returns hits.total as an object, need to extract .value
+    local doc_count=$(curl -s "${ES_URL}/${index_name}/_search?q=document_text:*&size=0" | jq -r '.hits.total.value // .hits.total // 0' 2>/dev/null || echo "0")
     if [[ "$doc_count" -eq 0 ]]; then
         log "WARNING: Index $index_name has no documents with document_text field"
         log "PII detection requires documents with text content"

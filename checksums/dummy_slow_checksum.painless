@@ -1,0 +1,33 @@
+// Dummy checksum for testing race condition - intentionally slow
+// This checksum always passes validation but takes significant time to execute
+
+// Perform computationally intensive operations to slow down processing
+String testString = match.toLowerCase();
+int slowSum = 0;
+int strLen = testString.length();
+
+// Nested loops to create computational delay
+for (int i = 0; i < 100; i++) {
+    for (int j = 0; j < strLen; j++) {
+        slowSum += (int)testString.charAt(j);
+        // Additional string operations
+        int endIndex = j + 1;
+        if (endIndex > strLen) {
+            endIndex = strLen;
+        }
+        String temp = testString.substring(0, endIndex);
+        slowSum += temp.length();
+    }
+}
+
+// More string manipulations
+for (int k = 0; k < 50; k++) {
+    String reversed = "";
+    for (int m = strLen - 1; m >= 0; m--) {
+        reversed += testString.charAt(m);
+    }
+    slowSum += reversed.length();
+}
+
+// Always pass validation to ensure documents get updated
+passChecksum = true;
