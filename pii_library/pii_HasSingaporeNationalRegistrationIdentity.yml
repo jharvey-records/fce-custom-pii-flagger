@@ -1,0 +1,8 @@
+fieldName: HasSingaporeNationalRegistrationIdentity
+patternRegex: "[SFTG]{7}[JZIHGFEDCBAXWUTRQPNMLK]"
+contextWords:
+  - Identity
+  - Card
+  - NRIC
+  - ID
+  - National

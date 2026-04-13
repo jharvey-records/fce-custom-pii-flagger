@@ -1,0 +1,13 @@
+fieldName: HasStudentIDNumber
+patternRegex: "[A-Za-z]{2}[0-9]{6}|[0-9]{8}"
+contextWords:
+  - "Student Number"
+  - "Student ID"
+  - "Academic ID"
+  - "University ID"
+  - "School ID"
+  - "Learner ID"
+  - student_list
+  - class_roster
+  - academic_records
+  - university_data

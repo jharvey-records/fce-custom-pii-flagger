@@ -1,0 +1,7 @@
+fieldName: HasElectronicSerialNumberESN
+patternRegex: "([0-9A-F])[0-9]{9}"
+contextWords:
+  - serial
+  - ESN
+  - number
+  - electronic

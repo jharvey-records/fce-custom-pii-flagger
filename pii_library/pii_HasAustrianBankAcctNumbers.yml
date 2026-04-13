@@ -1,0 +1,7 @@
+fieldName: HasAustrianBankAcctNumbers
+patternRegex: "[0-9]{16}"
+contextWords:
+  - bank
+  - account
+  - number
+  - BBAN

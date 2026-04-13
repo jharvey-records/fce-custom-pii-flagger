@@ -1,0 +1,8 @@
+fieldName: HasBelgianIDNumber
+patternRegex: "[0-9]{3}[ -]?[0-9]{7}[ -]?0[1-9]|[1-8][0-9]|9[0-7]"
+contextWords:
+  - ID
+  - number
+  - identification
+  - registration
+  - birth

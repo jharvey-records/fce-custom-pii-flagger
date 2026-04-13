@@ -1,0 +1,9 @@
+fieldName: HasAWSKeys
+patternRegex: "AKIA[0-9A-Z]{16}|[0-9a-zA-Z/+=]{40}"
+contextWords:
+  - Amazon
+  - AWS
+  - key
+  - IAM
+  - root
+  - user

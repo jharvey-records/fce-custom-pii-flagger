@@ -1,0 +1,16 @@
+fieldName: HasDriverLicense
+patternRegex: "[0-9]{12}|[A-Z]{1}[0-9]{12}|[A-Z]{2}[0-9]{12}|[A-Z]{5}[0-9]{9}[A-Z]{2}|[0-9]{10}|[0-9]{8}[A-Z]{2}"
+contextWords:
+  - "Driver's license"
+  - DMV
+  - "DL number"
+  - "driver's permit"
+  - "license number"
+  - "driver id"
+  - "license expiry"
+  - drivers_license
+  - dl_info
+  - state_id
+  - driver
+  - "driver license"
+  - drivers license

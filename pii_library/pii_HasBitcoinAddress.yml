@@ -1,0 +1,6 @@
+fieldName: HasBitcoinAddress
+patternRegex: "[13][a-km-zA-HJ-NP-Z1-9]{25,34}"
+contextWords:
+  - bitcoin
+  - btc
+  - address

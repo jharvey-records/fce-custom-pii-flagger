@@ -1,0 +1,6 @@
+fieldName: HasAUQLDDL
+patternRegex: "0[0-9]{7}"
+contextWords:
+  - Driver
+  - License
+  - Vehicle

@@ -1,0 +1,4 @@
+fieldName: HasJapaneseMyNumberPersonalCode
+patternRegex: "[0-9]{9}"
+contextWords:
+  - Tax

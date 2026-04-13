@@ -1,0 +1,12 @@
+fieldName: HasNationalProviderIdentifier
+patternRegex: "[0-9]{9}"
+contextWords:
+  - HIPAA
+  - NPI
+  - Healthcare
+  - Medical
+  - Medicine
+  - Provider
+  - Health
+  - Insurance
+  - Patient

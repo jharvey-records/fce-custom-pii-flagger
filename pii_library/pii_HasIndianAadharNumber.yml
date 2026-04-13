@@ -1,0 +1,7 @@
+fieldName: HasIndianAadharNumber
+patternRegex: "[2-9][0-9]{11}|[2-9][0-9]{3} [0-9]{4} [0-9]{4}"
+contextWords:
+  - Number
+  - Aadhaar
+  - Identification
+  - citizen

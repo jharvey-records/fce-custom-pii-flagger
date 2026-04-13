@@ -1,0 +1,7 @@
+fieldName: HasMacquarieAccountNumber
+patternRegex: "[0-9]{8}"  # Assuming Macquarie Savings Account numbers are 8 digits long
+contextWords:
+  - "macquarie savings"
+  - "savings"
+  - "account"
+  - "bank"

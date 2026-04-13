@@ -1,0 +1,6 @@
+fieldName: HasAustrianVATID
+patternRegex: "U[0-9]{8}"
+contextWords:
+  - identification
+  - VAT
+  - UID

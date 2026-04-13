@@ -1,0 +1,6 @@
+fieldName: HasCanadianManitobaHealth
+patternRegex: "[0-9]{7}"
+contextWords:
+  - health
+  - manitoba
+  - number

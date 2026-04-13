@@ -1,0 +1,6 @@
+fieldName: HasPortugueseTaxIdentifier
+patternRegex: "[0-9]{9}"
+contextWords:
+  - Tax
+  - NIF
+  - Code

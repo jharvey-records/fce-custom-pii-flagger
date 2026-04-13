@@ -1,0 +1,6 @@
+fieldName: HasUKNationalHealthServicesNumber
+patternRegex: "[A-CEGHJ-PR-TW-Z]{1}[ACEGHJ-NPR-TW-Z]{1}[0-9]{6}[ADFM]{0,1}|[0-9]{3}\\.[0-9]{3}\\.[0-9]{4}|[0-9]{3}[0-9]{3}[0-9]{4}|[0-9]{3}-[0-9]{3}-[0-9]{4}|[0-9]{3} [0-9]{3} [0-9]{4}"
+contextWords:
+  - Health
+  - Service
+  - NHS

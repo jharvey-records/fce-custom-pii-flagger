@@ -1,0 +1,7 @@
+fieldName: HasUnitedArabEmiratesID
+patternRegex: "-[0-9]{4}-[0-9]{7}-[0-9]{1}|[0-9]{4}[0-9]{7}[0-9]{1}| [0-9]{4} [0-9]{7} [0-9]{1}|\\.[0-9]{4}\\.[0-9]{7}\\.[0-9]{1}"
+contextWords:
+  - Emirates
+  - UAE
+  - Identification
+  - ID

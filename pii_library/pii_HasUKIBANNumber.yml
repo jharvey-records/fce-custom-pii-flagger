@@ -1,0 +1,7 @@
+fieldName: HasUKIBANNumber
+patternRegex: "GB[0-9]{2} [A-Z]{4} [0-9]{4} [0-9]{4} [0-9]{4} [0-9]{2}|GB[0-9]{2}[A-Z]{4}[0-9]{14}"
+contextWords:
+  - "IBAN"
+  - Number
+  - Code
+  - Payment

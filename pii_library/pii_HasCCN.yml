@@ -1,0 +1,12 @@
+fieldName: HasCCN
+patternRegex: "([0-9]{4}-)[0-9]{9}[0-9]{4}"
+contextWords:
+  - Card
+  - Credit
+  - Visa
+  - Mastercard
+  - "American Express"
+  - AmEx
+  - cvv
+  - payment
+  - billing

@@ -1,0 +1,7 @@
+fieldName: HasRussianMilitaryCertificatePattern
+patternRegex: "[N ]?[0-9]{6}"
+contextWords:
+  - Military
+  - Service
+  - Record
+  - Certificate

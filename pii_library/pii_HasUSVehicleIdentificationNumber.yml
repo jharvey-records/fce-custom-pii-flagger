@@ -1,0 +1,8 @@
+fieldName: HasUSVehicleIdentificationNumber
+patternRegex: "[A-HJ-NPR-Z0-9]{3}-[A-HJ-NPR-Z0-9]{5}-[A-HJ-NPR-Z0-9]{1}-[A-HJ-NPR-Z0-9]{8}|[A-HJ-NPR-Z0-9]{17}"
+contextWords:
+  - Vehicle
+  - VIN
+  - Ownership
+  - Insurance
+  - Registration

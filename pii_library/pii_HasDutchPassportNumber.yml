@@ -1,0 +1,6 @@
+fieldName: HasDutchPassportNumber
+patternRegex: "[A-NP-Z]{2}[A-NP-Z0-9]{6}[0-9]"
+contextWords:
+  - Travel
+  - Passport
+  - Identification

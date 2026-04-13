@@ -1,0 +1,6 @@
+fieldName: HasSwedishPassportNumber
+patternRegex: "[0-9]{9}|[0-9]{9}-[0-9]{9}"
+contextWords:
+  - Passport
+  - Travel
+  - Identification

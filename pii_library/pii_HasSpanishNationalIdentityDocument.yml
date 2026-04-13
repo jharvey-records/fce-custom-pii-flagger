@@ -1,0 +1,8 @@
+fieldName: HasSpanishNationalIdentityDocument
+patternRegex: "[0-9]{8}[A-HJ-NP-TV-Z]"
+contextWords:
+  - Document
+  - "National Identity"
+  - ID
+  - Identity
+  - "Personal Identification"

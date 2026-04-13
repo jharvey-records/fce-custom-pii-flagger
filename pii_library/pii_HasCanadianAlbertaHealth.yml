@@ -1,0 +1,6 @@
+fieldName: HasCanadianAlbertaHealth
+patternRegex: "[0-9]{5} [0-9]{4}|[0-9]{5}-[0-9]{4}|[0-9]{9}"
+contextWords:
+  - health
+  - PHN
+  - number

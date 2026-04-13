@@ -1,0 +1,7 @@
+fieldName: HasRussianPersonalTaxpayerID
+patternRegex: "0[1-9]|[1-7][0-9]|8[23679]|9[12][0-9]{10}"
+contextWords:
+  - ID
+  - Taxpayer
+  - Tax
+  - INN

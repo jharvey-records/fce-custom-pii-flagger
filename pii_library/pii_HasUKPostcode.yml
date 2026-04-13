@@ -1,0 +1,6 @@
+fieldName: HasUKPostcode
+patternRegex: "([G][I][R] ?0[A]{2})|[A-Z][0-9]{1,2} ?[0-9][A-Z]{2} ?[0-9][A-Z]{2}|[A-Z][A-HJ-Y][0-9]{1,2} ?[0-9][A-Z]{2}|[A-Z][0-9][A-Z] ?[0-9][A-Z]{2}|[A-Z][A-HJ-Y][0-9]?[A-Z] ?[0-9][A-Z]{2}"
+contextWords:
+  - Postal
+  - Code
+  - Post

@@ -1,0 +1,10 @@
+fieldName: HasPassport
+patternRegex: "[0-9]{8}|[A-Z]{1}[0-9]{8}|[0-9]{9}|[A-Z]{2}[0-9]{7}"
+contextWords:
+  - passport
+  - travel document
+  - epassport
+  - MRZ
+  - passport_scan
+  - passport_photo
+  - travel_docs

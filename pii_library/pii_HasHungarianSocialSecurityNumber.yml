@@ -1,0 +1,8 @@
+fieldName: HasHungarianSocialSecurityNumber
+patternRegex: "[0-9]{3} ?[0-9]{3} ?[0-9]{3}"
+contextWords:
+  - TAJ
+  - Social
+  - Security
+  - Health
+  - Insurance

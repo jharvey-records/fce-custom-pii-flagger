@@ -1,0 +1,6 @@
+fieldName: HasChineseMobileNumber
+patternRegex: "1[358][0-9]{9}"
+contextWords:
+  - mobile
+  - phone
+  - number

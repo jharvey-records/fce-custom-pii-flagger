@@ -1,0 +1,6 @@
+fieldName: HasPolishIdentityCard
+patternRegex: "[A-Z]{3}[0-9]{9}"
+contextWords:
+  - Identity
+  - ID
+  - Card

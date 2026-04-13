@@ -1,0 +1,6 @@
+fieldName: HasKoreanResidentsRegistrationNumber
+patternRegex: "[0-9]{9}-[0-9]{9}"
+contextWords:
+  - Resident
+  - Address
+  - Number

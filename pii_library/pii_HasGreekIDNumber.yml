@@ -1,0 +1,6 @@
+fieldName: HasGreekIDNumber
+patternRegex: "[ABEHIKMNOPTXYZ]{2}-?[0-9]{6}"
+contextWords:
+  - ID
+  - Identification
+  - citizen

@@ -1,0 +1,7 @@
+fieldName: HasNewZealandMinistriesofHealthIndexNumber
+patternRegex: "[A-Z]{3}[0-9]{4}"
+contextWords:
+  - Health
+  - Records
+  - Medical
+  - Healthcare

@@ -1,0 +1,6 @@
+fieldName: HasPortugueseSocialSecurityNumber
+patternRegex: "[0-9]{11}"
+contextWords:
+  - "Social Security"
+  - SSN
+  - "Social Services"

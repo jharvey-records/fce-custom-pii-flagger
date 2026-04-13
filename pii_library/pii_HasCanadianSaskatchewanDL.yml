@@ -1,0 +1,6 @@
+fieldName: HasCanadianSaskatchewanDL
+patternRegex: "[0-9]{8}"
+contextWords:
+  - Driver
+  - License
+  - Vehicle

@@ -1,0 +1,6 @@
+fieldName: HasKoreanDriversLicense
+patternRegex: "[0-9]{9}-[0-9]{9}-?[0-9]{9}|[0-9]{9}"
+contextWords:
+  - Driver
+  - License
+  - Vehicle

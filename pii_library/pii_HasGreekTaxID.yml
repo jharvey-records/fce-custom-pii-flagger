@@ -1,0 +1,7 @@
+fieldName: HasGreekTaxID
+patternRegex: "[0-9]{9}"
+contextWords:
+  - ID
+  - Identification
+  - Tax
+  - AFM

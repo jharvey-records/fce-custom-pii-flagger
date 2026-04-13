@@ -1,0 +1,8 @@
+fieldName: HasCyprianTaxIDPersonal
+patternRegex: "[09][0-9]{7}[A-Z]"
+contextWords:
+  - tax
+  - identification
+  - admin
+  - number
+  - ID

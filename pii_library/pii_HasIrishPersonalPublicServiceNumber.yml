@@ -1,0 +1,7 @@
+fieldName: HasIrishPersonalPublicServiceNumber
+patternRegex: "[0-9]{7}[A-Z]{1,2}"
+contextWords:
+  - PPS
+  - PRSI
+  - Service
+  - Number

@@ -1,0 +1,7 @@
+fieldName: HasDutchCitizenServiceNumberBSN
+patternRegex: "[0-9]{9}"
+contextWords:
+  - BSN
+  - citizen
+  - service
+  - number

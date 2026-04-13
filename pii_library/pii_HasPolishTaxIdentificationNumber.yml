@@ -1,0 +1,7 @@
+fieldName: HasPolishTaxIdentificationNumber
+patternRegex: "[0-9]{9}|[0-9]{3}-[0-9]{3}-[0-9]{2}-[0-9]{2}|[0-9]{3} [0-9]{3} [0-9]{2} [0-9]{2}|[0-9]{3} [0-9]{2} [0-9]{2} [0-9]{3}|[0-9]{3}-[0-9]{2}-[0-9]{2}-[0-9]{3}"
+contextWords:
+  - NIP
+  - Tax
+  - Identification
+  - Number

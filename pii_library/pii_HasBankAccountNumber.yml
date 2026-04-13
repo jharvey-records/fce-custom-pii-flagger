@@ -1,0 +1,14 @@
+fieldName: HasBankAccountNumber
+patternRegex: "[0-9]{12}|[0-9]{8}|[0-9]{9}"
+contextWords:
+  - "Bank Account"
+  - "Savings Account"
+  - "account number"
+  - "SWIFT code"
+  - "payment details"
+  - "bank details"
+  - "financial account"
+  - IBAN
+  - "international bank account number"
+  - bank_info
+  - account_details

@@ -1,0 +1,8 @@
+fieldName: HasCroatianPersonalIdentificationNumberOIB
+patternRegex: "([0-9]{11})|HR([0-9]{11})"
+contextWords:
+  - ID
+  - identification
+  - number
+  - citizen
+  - OIB

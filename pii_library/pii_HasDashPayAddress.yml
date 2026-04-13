@@ -1,0 +1,6 @@
+fieldName: HasDashPayAddress
+patternRegex: "X[1-9A-HJ-NP-Za-km-z]{33}"
+contextWords:
+  - dash
+  - payment
+  - destination

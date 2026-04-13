@@ -1,0 +1,7 @@
+fieldName: HasTaiwaneseMobileNumber
+patternRegex: "-[0-9]{9}|\\+886[0-9]{9}"
+contextWords:
+  - Mobile
+  - Number
+  - "Cell Phone"
+  - Contact

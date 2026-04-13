@@ -1,0 +1,6 @@
+fieldName: HasColombiaUniqueTaxpayerNumber
+patternRegex: "[0-9]{10}|[0-9]{3}\\.[0-9]{3}\\.[0-9]{3}\\.[0-9]{1}|[0-9]{3},[0-9]{3},[0-9]{3},[0-9]{1}|[0-9]{3} [0-9]{3} [0-9]{3} [0-9]{1}"
+contextWords:
+  - tax
+  - number
+  - NIT

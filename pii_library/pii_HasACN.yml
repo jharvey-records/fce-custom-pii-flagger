@@ -1,0 +1,6 @@
+fieldName: HasACN
+patternRegex: "[0-9]{3}\\.[0-9]{3}\\.[0-9]{3}|[0-9]{3}-[0-9]{3}-[0-9]{3}|[0-9]{3} [0-9]{3} [0-9]{3}|[0-9]{9}"
+contextWords:
+  - company
+  - number
+  - ACN

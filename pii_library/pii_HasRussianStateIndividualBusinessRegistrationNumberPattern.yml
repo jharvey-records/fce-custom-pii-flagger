@@ -1,0 +1,6 @@
+fieldName: HasRussianStateIndividualBusinessRegistrationNumberPattern
+patternRegex: "[0-9]{9}|[0-9]{9} [0-9]{9} [0-9]{9} [0-9]{9} [0-9]{9}"
+contextWords:
+  - OGRNIP
+  - Business
+  - Registration

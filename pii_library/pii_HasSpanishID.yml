@@ -1,0 +1,7 @@
+fieldName: HasSpanishID
+patternRegex: "(X0?|[YZ])[0-9]{7}[A-Z]"
+contextWords:
+  - Spanish
+  - ID
+  - Identity
+  - "Personal Identification"

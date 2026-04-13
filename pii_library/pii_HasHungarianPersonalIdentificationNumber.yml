@@ -1,0 +1,6 @@
+fieldName: HasHungarianPersonalIdentificationNumber
+patternRegex: "[1-8][ -]?[0-9]{6}[ -]?[0-9]{4}"
+contextWords:
+  - ID
+  - Identification
+  - citizen

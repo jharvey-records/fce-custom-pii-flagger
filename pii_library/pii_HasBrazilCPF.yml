@@ -1,0 +1,8 @@
+fieldName: HasBrazilCPF
+patternRegex: "[0-9]{11}|[0-9]{3}\\.[0-9]{3}\\.[0-9]{3}-[0-9]{2}"
+contextWords:
+  - CPF
+  - tax
+  - registration
+  - federal
+  - revenue

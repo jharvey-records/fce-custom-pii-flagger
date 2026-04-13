@@ -1,0 +1,6 @@
+fieldName: HasIsraeliIDNumber
+patternRegex: "[0-9]{9}"
+contextWords:
+  - ID
+  - Identiication
+  - Number

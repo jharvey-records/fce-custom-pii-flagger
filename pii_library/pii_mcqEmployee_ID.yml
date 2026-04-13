@@ -1,0 +1,15 @@
+fieldName: HasMacquarieEmployeeID
+patternRegex: "[A-Z]{1}[0-9]{9}"
+contextWords:
+- "Macquarie Employee"
+- "employee id"
+- "employee number"
+- "staff id"
+- "personnel number"
+- "HR ID"
+- "employee record"
+- "employee code"
+- employee_list
+- staff_list
+- staff_directory
+- HR_record

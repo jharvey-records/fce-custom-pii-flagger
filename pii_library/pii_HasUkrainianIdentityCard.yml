@@ -1,0 +1,6 @@
+fieldName: HasUkrainianIdentityCard
+patternRegex: "[0-9]{9}[01][0123]-[0-9]{9}|[0-9]{9}[01][0123]{8}|[0-9]{9}[01][0123] [0-9]{9}"
+contextWords:
+  - Identity
+  - Card
+  - ID

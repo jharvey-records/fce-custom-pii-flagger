@@ -1,0 +1,7 @@
+fieldName: HasPolishNationalIdentificationNumber
+patternRegex: "[0-9]{9}"
+contextWords:
+  - PESEL
+  - ID
+  - Identification
+  - National

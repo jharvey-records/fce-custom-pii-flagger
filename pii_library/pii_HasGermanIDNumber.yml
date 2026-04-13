@@ -1,0 +1,6 @@
+fieldName: HasGermanIDNumber
+patternRegex: "[0-9A-Z]{9}[0-9]D?[ -]?[0-9]{6}[0-9][ -MF]?[0-9]{6}[0-9][ -]?[0-9]|[0-9A-Z]{9}[0-9]D?"
+contextWords:
+  - ID
+  - Identification
+  - Number

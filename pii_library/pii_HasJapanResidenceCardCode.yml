@@ -1,0 +1,6 @@
+fieldName: HasJapanResidenceCardCode
+patternRegex: "[0-9]{9}"
+contextWords:
+  - Card
+  - Residence
+  - Address

@@ -1,0 +1,7 @@
+fieldName: HasAULandline
+patternRegex: "(0[2378]|$$0[2378]$$|\\+61[2378]) ?[0-9]{4}[- ]?[0-9]{4}"
+contextWords:
+  - Australian
+  - landline
+  - phone
+  - number

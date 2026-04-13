@@ -1,0 +1,9 @@
+fieldName: HasBrazilianCarReg
+patternRegex: "[A-Z]{3}[- ]?[0-9]{4}"
+contextWords:
+  - DETRAN
+  - vehicle
+  - registration
+  - plate
+  - tax
+  - car

@@ -1,0 +1,8 @@
+fieldName: HasCzechNHISUZISNumber
+patternRegex: "[0-9]{6}/?[0-9]{4}"
+contextWords:
+  - NHIS
+  - health
+  - uzis
+  - number
+  - id

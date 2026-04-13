@@ -1,0 +1,8 @@
+fieldName: HasSwissSocialSecurityNumber
+patternRegex: "\\.?[0-9]{4}\\.?[0-9]{4}\\.?[0-9]{2}"
+contextWords:
+  - Number
+  - AHV
+  - Insurance
+  - Social
+  - Security

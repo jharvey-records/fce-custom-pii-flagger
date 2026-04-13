@@ -1,0 +1,6 @@
+fieldName: HasUKElectoralRollNumber
+patternRegex: "[A-Z]{2,3}[0-9]{1,4}"
+contextWords:
+  - Electoral
+  - Vote
+  - Number

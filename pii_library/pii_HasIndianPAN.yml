@@ -1,0 +1,9 @@
+fieldName: HasIndianPAN
+patternRegex: "^[A-Z]{3}[PCHFAATBLJG][A-Z][0-9]{4}[A-Z]$"
+contextWords:
+  - PAN
+  - Account
+  - Number
+  - Tax
+  - Transaction
+  - Income

@@ -1,0 +1,7 @@
+fieldName: HasInternationalSecuritiesIdentifyingNumber
+patternRegex: "[A-Z]{2}[A-Z0-9]{9}[0-9]"
+contextWords:
+  - ISIN
+  - Identification
+  - Trading
+  - Security

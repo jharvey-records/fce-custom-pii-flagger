@@ -1,0 +1,7 @@
+fieldName: HasDutchBankAccountNumber
+patternRegex: "[0-9]{9,10}"
+contextWords:
+  - bank
+  - account
+  - number
+  - NL

@@ -1,0 +1,6 @@
+fieldName: HasMACAddress
+patternRegex: "b[0-9A-F]{2}:[0-9]{9}[0-9A-F]{2}|[0-9A-F]{2} [0-9]{9}[0-9A-F]{2}|b[0-9A-F]{2}\\.[0-9]{9}[0-9A-F]{2}|[0-9A-F]{4}:[0-9]{9}[0-9A-F]{4}|[0-9A-F]{4} [0-9]{9}[0-9AF]{4}|[0-9A-F]{4}\\.[0-9]{9}[0-9A-F]{4}|[0-9A-F]{12}"
+contextWords:
+  - MAC
+  - Address
+  - Network

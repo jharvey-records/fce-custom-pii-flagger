@@ -1,0 +1,8 @@
+fieldName: HasJapaneseMyNumberCorporate
+patternRegex: "[0-9]{9}"
+contextWords:
+  - Social
+  - Security
+  - Tax
+  - Identification
+  - citizen

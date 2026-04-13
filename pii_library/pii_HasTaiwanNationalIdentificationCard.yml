@@ -1,0 +1,7 @@
+fieldName: HasTaiwanNationalIdentificationCard
+patternRegex: "[0-9][A-Z][12][0-9]{8}[0-9]"
+contextWords:
+  - ID
+  - National
+  - Identification
+  - Number

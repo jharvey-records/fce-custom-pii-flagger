@@ -1,0 +1,6 @@
+fieldName: HasUKUniqueTaxpayerReference
+patternRegex: "[0-9]{9} [0-9]{9}|[0-9]{9}"
+contextWords:
+  - Taxpayer
+  - Tax
+  - UTR

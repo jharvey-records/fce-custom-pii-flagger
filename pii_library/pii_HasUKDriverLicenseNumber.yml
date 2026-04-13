@@ -1,0 +1,6 @@
+fieldName: HasUKDriverLicenseNumber
+patternRegex: "[A-Z0-9]{5}[0-9][0156][0-9]([0][1-9]|[12][0-9]|3[01])[0-9][A-Z0-9]{3}[A-Z]{2}"
+contextWords:
+  - Driver
+  - License
+  - DVLA

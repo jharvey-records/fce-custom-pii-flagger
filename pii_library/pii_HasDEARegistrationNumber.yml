@@ -1,0 +1,8 @@
+fieldName: HasDEARegistrationNumber
+patternRegex: "[A-Z]{2}[0-9]{7}"
+contextWords:
+  - healthcare
+  - health
+  - provider
+  - registration
+  - number

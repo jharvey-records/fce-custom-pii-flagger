@@ -1,0 +1,6 @@
+fieldName: HasHongKongIdentityCardNumber
+patternRegex: "[A-Z]{1,2}[0-9]{6}\\([0-9A]\\)"
+contextWords:
+  - ID
+  - Identification
+  - Card

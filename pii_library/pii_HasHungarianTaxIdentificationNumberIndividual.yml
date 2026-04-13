@@ -1,0 +1,6 @@
+fieldName: HasHungarianTaxIdentificationNumberIndividual
+patternRegex: "[0-9]{9}"
+contextWords:
+  - Tax
+  - Identification
+  - TIN

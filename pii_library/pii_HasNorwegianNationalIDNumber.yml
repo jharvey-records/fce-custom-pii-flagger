@@ -1,0 +1,6 @@
+fieldName: HasNorwegianNationalIDNumber
+patternRegex: "0[1-9]|[1-6][0-9]|7[01]0[1-9]|[1-4][0-9]|5[0-2]|[89][0-9]{3}[0-9]{7}"
+contextWords:
+  - ID
+  - Identification
+  - National
