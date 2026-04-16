@@ -171,7 +171,8 @@ def main():
 
     # Extract hits
     hits = response_data.get('hits', {}).get('hits', [])
-    total_hits = response_data.get('hits', {}).get('total', {}).get('value', 0)
+    total_raw = response_data.get('hits', {}).get('total', 0)
+    total_hits = total_raw.get('value', 0) if isinstance(total_raw, dict) else total_raw
 
     # Generate output filename
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

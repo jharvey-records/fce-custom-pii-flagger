@@ -194,8 +194,8 @@ monitor_task() {
             --url "${ES_URL}/_tasks/${task_id}?pretty" \
             --header 'authorization: Basic ZWxhc3RpYzpjaGFuZ2VtZQ==')
         
-        # Check if task is completed (no longer exists)
-        if echo "$task_response" | grep -q '"found" : false'; then
+        # Check if task is completed (no longer exists in task registry)
+        if echo "$task_response" | grep -qE '"found" : false|resource_not_found_exception'; then
             log "$task_description completed successfully"
             break
         fi

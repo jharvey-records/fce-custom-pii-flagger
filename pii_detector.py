@@ -30,6 +30,17 @@ def load_config(config_file: str) -> Dict[str, Any]:
         print(f"Error parsing YAML file: {e}")
         sys.exit(1)
 
+def detect_es_version(es_url: str = "http://localhost:9200") -> int:
+    """Detect the major version of Elasticsearch by querying the root endpoint."""
+    try:
+        response = requests.get(es_url, timeout=5)
+        if response.status_code == 200:
+            version_str = response.json().get('version', {}).get('number', '8.0.0')
+            return int(version_str.split('.')[0])
+    except Exception:
+        pass
+    return 8  # Default to ES8 behavior
+
 # Legacy span query functions removed - no longer needed with keyword regex approach
 
 def build_complete_query(config: Dict[str, Any], field: str = "document_text", field_name: str = None, reverse: bool = False, search_mode: bool = False, ner_mode: bool = False) -> Dict[str, Any]:
@@ -468,8 +479,12 @@ def ensure_field_mapping(field_name: str, index: str, es_url: str = "http://loca
                 print(f"Field mapping for {field_prefix}.{field_name} already exists as {expected_type}")
                 return
         
-        # Create or update the mapping using the _mapping endpoint (ES8 compatible)
-        mapping_endpoint = f"{es_url}/{index}/_mapping"
+        # Use type-aware endpoint: ES6 requires /_mapping/_doc, ES7+ uses typeless /_mapping
+        es_version = detect_es_version(es_url)
+        if es_version <= 6:
+            mapping_endpoint = f"{es_url}/{index}/_mapping/_doc"
+        else:
+            mapping_endpoint = f"{es_url}/{index}/_mapping"
         field_prefix = "named_entities" if ner_mode else "PII"
         field_type = "text" if ner_mode else "boolean"
 
